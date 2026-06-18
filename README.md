@@ -16,6 +16,89 @@
 - 非宿主、非操作人的私聊和按钮操作无效。
 - 发送时使用 `copyMessage`，目标群不会显示原始转发来源。
 
+## Ubuntu 一键部署
+
+项目现在提供两种服务器部署方式。两种方式都会自动执行 `apt-get update`，默认也会执行 `apt-get upgrade -y` 更新系统软件包，并自动创建 `deploy/envs/<机器人名>.env`。
+
+先把项目代码放到服务器，例如：
+
+```bash
+sudo mkdir -p /opt/tg-forward-bots
+sudo chown -R "$USER:$USER" /opt/tg-forward-bots
+git clone https://github.com/dayou0168/telegram-forward-bot.git /opt/tg-forward-bots/telegram-forward-bot
+cd /opt/tg-forward-bots/telegram-forward-bot
+```
+
+如果仓库是 Private，需要先在服务器上配置 GitHub 登录或使用具备仓库读取权限的 token。
+
+如果服务器上已经有重要业务，想跳过系统升级，可以加：
+
+```bash
+--skip-system-upgrade
+```
+
+### 方式一：原生 Linux + systemd
+
+适合不想使用 Docker 的服务器。脚本会安装 Python、创建 `.venv`、安装依赖，并创建 systemd 服务，服务名类似 `tg-forward-notice_bot.service`。
+
+```bash
+cd /opt/tg-forward-bots/telegram-forward-bot
+sudo bash deploy/install-native.sh \
+  --bot-name notice-bot \
+  --bot-token "你的BotFather令牌" \
+  --owner-user-ids "你的Telegram用户ID"
+```
+
+查看日志：
+
+```bash
+bash deploy/run-native-bot.sh notice-bot logs
+```
+
+重启：
+
+```bash
+bash deploy/run-native-bot.sh notice-bot restart
+```
+
+停止：
+
+```bash
+bash deploy/run-native-bot.sh notice-bot stop
+```
+
+### 方式二：Docker Compose
+
+适合希望隔离更干净、后续升级更省心的服务器。脚本会安装 Docker Engine 和 Docker Compose 插件，创建 env 文件，然后启动对应机器人实例。
+
+```bash
+cd /opt/tg-forward-bots/telegram-forward-bot
+sudo bash deploy/install-docker.sh \
+  --bot-name notice-bot \
+  --bot-token "你的BotFather令牌" \
+  --owner-user-ids "你的Telegram用户ID"
+```
+
+查看日志：
+
+```bash
+./deploy/run-bot.sh notice-bot logs
+```
+
+重启：
+
+```bash
+./deploy/run-bot.sh notice-bot restart
+```
+
+停止：
+
+```bash
+./deploy/run-bot.sh notice-bot down
+```
+
+同一台服务器要跑多个机器人，只需要换不同的 `--bot-name`、`--bot-token` 和数据库 env 文件。例如 `notice-bot`、`customer-bot` 会分别使用 `deploy/envs/notice-bot.env`、`deploy/envs/customer-bot.env`。
+
 ## 单机器人快速启动
 
 1. 复制环境变量文件：
@@ -52,7 +135,7 @@ docker compose logs -f
 
 ## 同一台服务器部署多个机器人
 
-推荐使用同一份代码，通过不同的 env 文件和不同的 Compose project 启动多个实例。这个项目使用 long polling，不开放端口，所以多个机器人不会抢端口。
+推荐使用同一份代码，通过不同的 env 文件启动多个实例。这个项目使用 long polling，不开放端口，所以多个机器人不会抢端口。
 
 目录结构：
 
@@ -73,6 +156,8 @@ UNAUTHORIZED_REPLY=true
 SEND_DELAY_SECONDS=0.08
 ```
 
+如果使用一键脚本，不需要手动复制模板。脚本会自动创建对应 env 文件。
+
 复制模板：
 
 ```bash
@@ -86,6 +171,20 @@ cp deploy/envs/example-bot.env deploy/envs/customer-bot.env
 chmod +x deploy/run-bot.sh
 ./deploy/run-bot.sh notice-bot up
 ./deploy/run-bot.sh customer-bot up
+```
+
+如果使用原生 systemd 部署：
+
+```bash
+sudo bash deploy/install-native.sh --bot-name notice-bot
+bash deploy/run-native-bot.sh notice-bot logs
+```
+
+如果使用 Docker Compose 部署：
+
+```bash
+sudo bash deploy/install-docker.sh --bot-name notice-bot
+./deploy/run-bot.sh notice-bot logs
 ```
 
 查看日志：

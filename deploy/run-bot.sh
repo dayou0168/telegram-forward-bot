@@ -13,6 +13,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/deploy/envs/$BOT_NAME.env"
 PROJECT_NAME="tg_forward_${BOT_NAME//[^a-zA-Z0-9]/_}"
 
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is not installed or not in PATH."
+  echo "Install Docker Compose mode with: sudo bash deploy/install-docker.sh --bot-name $BOT_NAME"
+  exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "Docker Compose plugin is not available."
+  echo "Install Docker Compose mode with: sudo bash deploy/install-docker.sh --bot-name $BOT_NAME"
+  exit 1
+fi
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing env file: $ENV_FILE"
   echo "Create it from deploy/envs/example-bot.env first."
@@ -20,6 +32,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 cd "$ROOT_DIR"
+mkdir -p "$ROOT_DIR/data"
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  chown -R 10001:10001 "$ROOT_DIR/data"
+  chmod 750 "$ROOT_DIR/data"
+fi
 
 case "$ACTION" in
   up)

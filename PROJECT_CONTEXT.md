@@ -24,6 +24,9 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `deploy/run-bot.sh`：多机器人实例部署脚本。
+- `deploy/install-docker.sh`：Ubuntu/Debian Docker Compose 一键安装脚本，会安装 Docker Engine 和 Compose 插件。
+- `deploy/install-native.sh`：Ubuntu/Debian 原生 systemd 一键安装脚本，会安装 Python、venv、依赖并创建 systemd 服务。
+- `deploy/run-native-bot.sh`：原生 systemd 模式的管理脚本，用于查看日志、重启、停止服务。
 - `deploy/envs/example-bot.env`：单个机器人 env 模板。
 
 ## 权限规则
@@ -97,6 +100,34 @@ deploy/envs/customer-bot.env
 ```bash
 ./deploy/run-bot.sh notice-bot logs
 ```
+
+当前支持两种一键部署方式：
+
+```bash
+sudo bash deploy/install-native.sh --bot-name notice-bot --bot-token "TOKEN" --owner-user-ids "123456789"
+```
+
+```bash
+sudo bash deploy/install-docker.sh --bot-name notice-bot --bot-token "TOKEN" --owner-user-ids "123456789"
+```
+
+两个安装脚本都会自动执行 `apt-get update`，默认也会执行 `apt-get upgrade -y`。如果要跳过系统升级，加 `--skip-system-upgrade`。
+
+原生模式使用 systemd 服务，服务名形如 `tg-forward-notice_bot.service`，管理命令：
+
+```bash
+bash deploy/run-native-bot.sh notice-bot logs
+bash deploy/run-native-bot.sh notice-bot restart
+```
+
+Docker 模式使用 Compose project，管理命令：
+
+```bash
+./deploy/run-bot.sh notice-bot logs
+./deploy/run-bot.sh notice-bot restart
+```
+
+Docker 镜像里的运行用户固定为 UID/GID `10001`。`deploy/install-docker.sh` 和 root 执行的 `deploy/run-bot.sh` 会把宿主机 `data/` 目录 chown 到 `10001:10001`，避免 SQLite 数据库因为 bind mount 权限无法写入。
 
 ## 重要安全约束
 
