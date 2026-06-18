@@ -77,6 +77,39 @@ git commit -m "Describe your change"
 git push
 ```
 
+## 6. 服务器 curl 一键安装
+
+当前仓库是 Private，服务器需要 GitHub token 才能读取 raw 脚本和 clone 代码。
+
+```bash
+read -rsp "GitHub token: " GITHUB_TOKEN
+echo
+```
+
+Docker Compose 一键安装：
+
+```bash
+curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+  --mode docker \
+  --bot-name notice-bot \
+  --bot-token "你的BotFather令牌" \
+  --owner-user-ids "你的Telegram用户ID"
+```
+
+原生 systemd 一键安装：
+
+```bash
+curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+  --mode native \
+  --bot-name notice-bot \
+  --bot-token "你的BotFather令牌" \
+  --owner-user-ids "你的Telegram用户ID"
+```
+
 服务器升级：
 
 ```bash
@@ -85,7 +118,7 @@ git pull
 ./deploy/run-bot.sh notice-bot up
 ```
 
-## 6. 换新对话窗口时怎么继续
+## 7. 换新对话窗口时怎么继续
 
 在新对话里直接说：
 

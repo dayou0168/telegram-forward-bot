@@ -23,6 +23,7 @@
 - `bot/models.py`：SQLAlchemy 表模型。
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
+- `deploy/bootstrap.sh`：远程一键安装入口，支持 `curl ... | sudo bash -s -- --mode native|docker`，会自动安装 git、拉取/更新项目，再调用本地安装脚本。
 - `deploy/run-bot.sh`：多机器人实例部署脚本。
 - `deploy/install-docker.sh`：Ubuntu/Debian Docker Compose 一键安装脚本，会安装 Docker Engine 和 Compose 插件。
 - `deploy/install-native.sh`：Ubuntu/Debian 原生 systemd 一键安装脚本，会安装 Python、venv、依赖并创建 systemd 服务。
@@ -102,6 +103,27 @@ deploy/envs/customer-bot.env
 ```
 
 当前支持两种一键部署方式：
+
+远程 curl 入口是推荐方式。当前 GitHub 仓库是 Private，因此服务器需要 `GITHUB_TOKEN` 读取 raw 脚本和 clone 代码：
+
+```bash
+read -rsp "GitHub token: " GITHUB_TOKEN
+echo
+```
+
+```bash
+curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+  --mode docker \
+  --bot-name notice-bot \
+  --bot-token "TOKEN" \
+  --owner-user-ids "123456789"
+```
+
+原生 systemd 模式把 `--mode docker` 换成 `--mode native`。
+
+如果代码已经在服务器本地，也可以直接运行：
 
 ```bash
 sudo bash deploy/install-native.sh --bot-name notice-bot --bot-token "TOKEN" --owner-user-ids "123456789"

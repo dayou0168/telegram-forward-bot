@@ -18,18 +18,16 @@
 
 ## Ubuntu 一键部署
 
-项目现在提供两种服务器部署方式。两种方式都会自动执行 `apt-get update`，默认也会执行 `apt-get upgrade -y` 更新系统软件包，并自动创建 `deploy/envs/<机器人名>.env`。
+项目现在提供两种服务器部署方式，并支持直接 `curl` GitHub 上的脚本完成安装，不需要先手动 clone 项目。脚本会自动安装基础依赖、拉取或更新项目代码、创建 env 文件，然后启动机器人。
 
-先把项目代码放到服务器，例如：
+当前仓库是 Private，服务器需要一个 GitHub token 才能读取脚本和代码。token 只需要能读取这个私有仓库内容即可：Fine-grained token 选择该仓库并授予 `Contents: Read-only`，Classic token 使用 `repo` 权限。
+
+先在服务器输入 GitHub token：
 
 ```bash
-sudo mkdir -p /opt/tg-forward-bots
-sudo chown -R "$USER:$USER" /opt/tg-forward-bots
-git clone https://github.com/dayou0168/telegram-forward-bot.git /opt/tg-forward-bots/telegram-forward-bot
-cd /opt/tg-forward-bots/telegram-forward-bot
+read -rsp "GitHub token: " GITHUB_TOKEN
+echo
 ```
-
-如果仓库是 Private，需要先在服务器上配置 GitHub 登录或使用具备仓库读取权限的 token。
 
 如果服务器上已经有重要业务，想跳过系统升级，可以加：
 
@@ -37,13 +35,15 @@ cd /opt/tg-forward-bots/telegram-forward-bot
 --skip-system-upgrade
 ```
 
-### 方式一：原生 Linux + systemd
+### 方式一：curl 原生 Linux + systemd
 
-适合不想使用 Docker 的服务器。脚本会安装 Python、创建 `.venv`、安装依赖，并创建 systemd 服务，服务名类似 `tg-forward-notice_bot.service`。
+适合不想使用 Docker 的服务器。脚本会自动安装 git、Python、venv 和依赖，把项目放到 `/opt/tg-forward-bots/telegram-forward-bot`，并创建 systemd 服务，服务名类似 `tg-forward-notice_bot.service`。
 
 ```bash
-cd /opt/tg-forward-bots/telegram-forward-bot
-sudo bash deploy/install-native.sh \
+curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+  --mode native \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
   --owner-user-ids "你的Telegram用户ID"
@@ -67,13 +67,15 @@ bash deploy/run-native-bot.sh notice-bot restart
 bash deploy/run-native-bot.sh notice-bot stop
 ```
 
-### 方式二：Docker Compose
+### 方式二：curl Docker Compose
 
-适合希望隔离更干净、后续升级更省心的服务器。脚本会安装 Docker Engine 和 Docker Compose 插件，创建 env 文件，然后启动对应机器人实例。
+适合希望隔离更干净、后续升级更省心的服务器。脚本会自动安装 git、Docker Engine 和 Docker Compose 插件，把项目放到 `/opt/tg-forward-bots/telegram-forward-bot`，创建 env 文件，然后启动对应机器人实例。
 
 ```bash
-cd /opt/tg-forward-bots/telegram-forward-bot
-sudo bash deploy/install-docker.sh \
+curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+  --mode docker \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
   --owner-user-ids "你的Telegram用户ID"
@@ -98,6 +100,27 @@ sudo bash deploy/install-docker.sh \
 ```
 
 同一台服务器要跑多个机器人，只需要换不同的 `--bot-name`、`--bot-token` 和数据库 env 文件。例如 `notice-bot`、`customer-bot` 会分别使用 `deploy/envs/notice-bot.env`、`deploy/envs/customer-bot.env`。
+
+如果以后把 GitHub 仓库改成 Public，命令可以去掉 token，直接这样安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
+  --mode docker \
+  --bot-name notice-bot \
+  --bot-token "你的BotFather令牌" \
+  --owner-user-ids "你的Telegram用户ID"
+```
+
+### 已经 clone 项目的备用方式
+
+如果项目代码已经在服务器上，也可以进入目录后直接运行本地安装脚本：
+
+```bash
+cd /opt/tg-forward-bots/telegram-forward-bot
+sudo bash deploy/install-native.sh --bot-name notice-bot
+sudo bash deploy/install-docker.sh --bot-name notice-bot
+```
 
 ## 单机器人快速启动
 

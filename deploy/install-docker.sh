@@ -50,10 +50,18 @@ prompt_if_empty() {
     return
   fi
   if [[ "$secret" == "true" ]]; then
-    read -rsp "$prompt: " value
+    if [[ -r /dev/tty ]]; then
+      read -rsp "$prompt: " value < /dev/tty
+    else
+      read -rsp "$prompt: " value
+    fi
     echo
   else
-    read -rp "$prompt: " value
+    if [[ -r /dev/tty ]]; then
+      read -rp "$prompt: " value < /dev/tty
+    else
+      read -rp "$prompt: " value
+    fi
   fi
   printf -v "$var_name" '%s' "$value"
 }
