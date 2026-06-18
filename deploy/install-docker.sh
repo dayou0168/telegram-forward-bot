@@ -110,6 +110,7 @@ fi
 
 ENV_DIR="$ROOT_DIR/deploy/envs"
 ENV_FILE="$ENV_DIR/$BOT_NAME.env"
+COMPOSE_FILE="$ROOT_DIR/compose.yaml"
 PROJECT_NAME="tg_forward_${BOT_NAME//[^a-zA-Z0-9]/_}"
 CONTAINER_UID=10001
 CONTAINER_GID=10001
@@ -205,8 +206,8 @@ fi
 if [[ "$START_STACK" == "true" ]]; then
   echo "Starting Docker Compose project: $PROJECT_NAME"
   cd "$ROOT_DIR"
-  run_root env BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" up -d --build
-  run_root env BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" ps
+  run_root env BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --build
+  run_root env BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps
 fi
 
 cat <<EOF

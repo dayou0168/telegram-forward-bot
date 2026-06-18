@@ -23,6 +23,8 @@
 - `bot/models.py`：SQLAlchemy 表模型。
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
+- `compose.yaml`：标准 Docker Compose 部署入口。
+- `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `deploy/bootstrap.sh`：远程一键安装入口，支持 `curl ... | sudo bash -s -- --mode native|docker`，会自动安装 git、拉取/更新项目，再调用本地安装脚本。
 - `deploy/run-bot.sh`：多机器人实例部署脚本。
 - `deploy/install-docker.sh`：Ubuntu/Debian Docker Compose 一键安装脚本，会安装 Docker Engine 和 Compose 插件。

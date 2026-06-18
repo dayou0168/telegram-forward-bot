@@ -11,6 +11,7 @@ BOT_NAME="$1"
 ACTION="${2:-up}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/deploy/envs/$BOT_NAME.env"
+COMPOSE_FILE="$ROOT_DIR/compose.yaml"
 PROJECT_NAME="tg_forward_${BOT_NAME//[^a-zA-Z0-9]/_}"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -31,6 +32,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+  echo "Missing compose file: $COMPOSE_FILE"
+  exit 1
+fi
+
 cd "$ROOT_DIR"
 mkdir -p "$ROOT_DIR/data"
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
@@ -40,22 +46,22 @@ fi
 
 case "$ACTION" in
   up)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" up -d --build
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --build
     ;;
   build)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" build
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" build
     ;;
   down)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" down
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down
     ;;
   restart)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" restart
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" restart
     ;;
   logs)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" logs -f
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f
     ;;
   ps)
-    BOT_ENV_FILE="$ENV_FILE" docker compose -p "$PROJECT_NAME" ps
+    BOT_ENV_FILE="$ENV_FILE" docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps
     ;;
   *)
     echo "Unknown action: $ACTION"

@@ -147,13 +147,13 @@ OWNER_USER_IDS=123456789,987654321
 3. Docker 启动：
 
 ```bash
-docker compose up -d --build
+docker compose -f compose.yaml up -d --build
 ```
 
 4. 查看日志：
 
 ```bash
-docker compose logs -f
+docker compose -f compose.yaml logs -f
 ```
 
 ## 同一台服务器部署多个机器人
@@ -228,9 +228,11 @@ sudo bash deploy/install-docker.sh --bot-name notice-bot
 不用脚本也可以直接运行：
 
 ```bash
-BOT_ENV_FILE=deploy/envs/notice-bot.env docker compose -p tg_forward_notice_bot up -d --build
-BOT_ENV_FILE=deploy/envs/customer-bot.env docker compose -p tg_forward_customer_bot up -d --build
+BOT_ENV_FILE=deploy/envs/notice-bot.env docker compose -f compose.yaml -p tg_forward_notice_bot up -d --build
+BOT_ENV_FILE=deploy/envs/customer-bot.env docker compose -f compose.yaml -p tg_forward_customer_bot up -d --build
 ```
+
+项目同时保留 `docker-compose.yml` 兼容旧习惯，但标准 Compose 入口是 `compose.yaml`。部署脚本会显式使用 `compose.yaml`。
 
 ## 本地运行
 
