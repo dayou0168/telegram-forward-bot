@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 from typing import Any
 
 from aiogram import Bot, F, Router
@@ -168,14 +169,34 @@ def _format_chats(chats: list[Any]) -> str:
 
 def _sender_label(message: Message) -> str:
     if message.from_user is not None:
-        parts = [message.from_user.full_name]
+        if message.from_user.full_name:
+            return message.from_user.full_name
         if message.from_user.username:
-            parts.append(f"@{message.from_user.username}")
-        parts.append(str(message.from_user.id))
-        return " | ".join(parts)
+            return f"@{message.from_user.username}"
+        return "未知发送者"
     if message.sender_chat is not None:
-        return f"{message.sender_chat.title} | {message.sender_chat.id}"
+        if message.sender_chat.title:
+            return message.sender_chat.title
+        if message.sender_chat.username:
+            return f"@{message.sender_chat.username}"
+        return "未知发送者"
     return "未知发送者"
+
+
+def _sender_url(message: Message) -> str | None:
+    if message.from_user is not None:
+        return f"tg://user?id={message.from_user.id}"
+    if message.sender_chat is not None and message.sender_chat.username:
+        return f"https://t.me/{message.sender_chat.username}"
+    return None
+
+
+def _html_link(label: str, url: str | None) -> str:
+    safe_label = html.escape(label, quote=False)
+    if url is None:
+        return safe_label
+    safe_url = html.escape(url, quote=True)
+    return f'<a href="{safe_url}">{safe_label}</a>'
 
 
 def _truncate_text(text: str, limit: int = 1200) -> str:
@@ -231,6 +252,14 @@ def _reply_content_preview(message: Message, *, text_limit: int = 1200) -> tuple
     return f"[{label}]\n已附上原消息，点击下方按钮也可以打开群内位置。", True
 
 
+def _reply_group_link(message: Message, group_url: str | None) -> str:
+    return _html_link(str(message.chat.title or message.chat.id), group_url)
+
+
+def _reply_sender_link(message: Message) -> str:
+    return _html_link(_sender_label(message), _sender_url(message))
+
+
 def _can_embed_notice_in_copied_message(message: Message) -> bool:
     return any(
         getattr(message, field, None)
@@ -238,15 +267,24 @@ def _can_embed_notice_in_copied_message(message: Message) -> bool:
     )
 
 
-def _build_reply_notice(message: Message, job_text: str, *, content_limit: int = 1200) -> str:
-    content_preview, _ = _reply_content_preview(message, text_limit=content_limit)
-    return (
-        "群内回复\n\n"
-        f"群：{message.chat.title or message.chat.id}\n"
-        f"人：{_sender_label(message)}\n"
-        f"{job_text}\n\n"
-        f"内容：\n{content_preview}"
-    )
+def _build_reply_notice(
+    message: Message,
+    *,
+    content_limit: int = 1200,
+    group_url: str | None = None,
+    max_length: int | None = None,
+) -> str:
+    limit = content_limit
+    while True:
+        content_preview, _ = _reply_content_preview(message, text_limit=limit)
+        notice = (
+            f"群：{_reply_group_link(message, group_url)}\n"
+            f"人：{_reply_sender_link(message)}\n\n"
+            f"内容：\n\n{html.escape(content_preview, quote=False)}"
+        )
+        if max_length is None or len(notice) <= max_length or limit <= 60:
+            return notice
+        limit = max(60, limit - max(20, len(notice) - max_length))
 
 
 def _format_uid_text(user: Any) -> str:
@@ -525,16 +563,11 @@ async def _notify_reply_if_needed(
     )
 
     recipients = set(settings.owner_user_ids)
-    job_text = "任务：未匹配到历史任务"
     if match is not None:
-        job_text = f"任务：#{match.job.id}"
         operator_role = await repo.get_user_role(session, match.job.operator_user_id, settings.owner_user_ids)
         if operator_role is not None:
             recipients.add(match.job.operator_user_id)
 
-    _, should_copy_original = _reply_content_preview(message)
-    notice = _build_reply_notice(message, job_text)
-    media_notice = _truncate_text(_build_reply_notice(message, job_text, content_limit=420), 900)
     reply_url = _telegram_message_url(message.chat.id, message.message_id, message.chat.username)
     original_url = _telegram_message_url(
         message.chat.id,
@@ -549,6 +582,9 @@ async def _notify_reply_if_needed(
         reply_url=reply_url,
         original_url=original_url,
     )
+    _, should_copy_original = _reply_content_preview(message)
+    notice = _build_reply_notice(message, group_url=reply_url)
+    media_notice = _build_reply_notice(message, content_limit=420, group_url=reply_url, max_length=900)
 
     for user_id in recipients:
         try:
@@ -559,14 +595,20 @@ async def _notify_reply_if_needed(
                         from_chat_id=message.chat.id,
                         message_id=message.message_id,
                         caption=media_notice,
-                        parse_mode=None,
+                        parse_mode="HTML",
                         reply_markup=reply_markup,
                     )
                     continue
                 except TelegramAPIError:
                     pass
 
-            await bot.send_message(user_id, notice, parse_mode=None, reply_markup=reply_markup)
+            await bot.send_message(
+                user_id,
+                notice,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=reply_markup,
+            )
             if should_copy_original:
                 await bot.copy_message(
                     chat_id=user_id,
