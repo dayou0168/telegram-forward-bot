@@ -248,6 +248,8 @@ compose.baota.yaml
 /www/wwwroot/telegram-forward-bot
 ```
 
+这个宝塔模板把 `BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件或手动设置 `data/` 权限。
+
 详细步骤见：
 
 ```text

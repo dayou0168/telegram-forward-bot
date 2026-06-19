@@ -6,7 +6,14 @@ services:
     image: tg-forward-bot:notice-bot
     container_name: tg-forward-notice-bot
     restart: unless-stopped
-    env_file:
-      - /www/wwwroot/telegram-forward-bot/deploy/envs/notice-bot.env
+    environment:
+      BOT_TOKEN: "替换为你的BotFather令牌"
+      OWNER_USER_IDS: "替换为你的Telegram数字UID"
+      DATABASE_URL: "sqlite+aiosqlite:///./data/notice-bot.db"
+      UNAUTHORIZED_REPLY: "true"
+      SEND_DELAY_SECONDS: "0.08"
     volumes:
-      - /www/wwwroot/telegram-forward-bot/data:/app/data
+      - tg_forward_notice_data:/app/data
+
+volumes:
+  tg_forward_notice_data:
