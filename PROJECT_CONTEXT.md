@@ -24,7 +24,8 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板，默认项目路径 `/www/wwwroot/telegram-forward-bot`；宝塔模板使用内联环境变量和 Docker 命名卷，不依赖 `deploy/envs/*.env`；顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，镜像名 `ghcr.io/dayou0168/telegram-forward-bot:latest`。
+- `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和 Docker 命名卷，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
 - `deploy/bootstrap.sh`：远程一键安装入口，支持 `curl ... | sudo bash -s -- --mode native|docker`，会自动安装 git、拉取/更新项目，再调用本地安装脚本。
@@ -108,17 +109,11 @@ deploy/envs/customer-bot.env
 
 当前支持两种一键部署方式：
 
-远程 curl 入口是推荐方式。当前 GitHub 仓库是 Private，因此服务器需要 `GITHUB_TOKEN` 读取 raw 脚本和 clone 代码：
+远程 curl 入口是推荐方式。当前 GitHub 仓库是 Public，可以直接读取 raw 脚本和 clone 代码：
 
 ```bash
-read -rsp "GitHub token: " GITHUB_TOKEN
-echo
-```
-
-```bash
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
-  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
   --mode docker \
   --bot-name notice-bot \
   --bot-token "TOKEN" \
@@ -159,7 +154,7 @@ Docker 镜像里的运行用户固定为 UID/GID `10001`。`deploy/install-docke
 
 - 不要提交 `.env`、`deploy/envs/*.env`、`data/*.db`。
 - `deploy/envs/example-bot.env` 可以提交，因为里面不应该放真实 token。
-- GitHub 仓库建议先设为 Private。
+- 仓库可以保持 Public；不要提交 `.env`、真实 token 和数据库。
 - 生产服务器上数据库要定期备份 `data/*.db`。
 
 ## 后续开发前检查

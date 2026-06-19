@@ -2,10 +2,7 @@ name: tg-forward-notice-bot
 
 services:
   tg-forward-bot:
-    build:
-      context: /www/wwwroot/telegram-forward-bot
-      dockerfile: Dockerfile
-    image: tg-forward-bot:notice-bot
+    image: ghcr.io/dayou0168/telegram-forward-bot:latest
     container_name: tg-forward-notice-bot
     restart: unless-stopped
     environment:

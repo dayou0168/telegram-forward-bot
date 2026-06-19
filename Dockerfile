@@ -3,6 +3,9 @@ FROM python:3.12-slim
 ARG APP_UID=10001
 ARG APP_GID=10001
 
+LABEL org.opencontainers.image.source="https://github.com/dayou0168/telegram-forward-bot" \
+      org.opencontainers.image.description="Telegram group forwarding bot"
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 

@@ -20,7 +20,7 @@ D:\Documents\Telegream机器人
 
 ## 2. 创建 GitHub 仓库
 
-建议在 GitHub 创建一个 Private 仓库，例如：
+建议在 GitHub 创建仓库，例如：
 
 ```text
 telegram-forward-bot
@@ -79,19 +79,13 @@ git push
 
 ## 6. 服务器 curl 一键安装
 
-当前仓库是 Private，服务器需要 GitHub token 才能读取 raw 脚本和 clone 代码。
-
-```bash
-read -rsp "GitHub token: " GITHUB_TOKEN
-echo
-```
+当前仓库是 Public，服务器可以直接读取 raw 脚本和 clone 代码。如果以后把仓库改回 Private，再使用 GitHub token。
 
 Docker Compose 一键安装：
 
 ```bash
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
-  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
   --mode docker \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
@@ -101,9 +95,8 @@ curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
 原生 systemd 一键安装：
 
 ```bash
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
-  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
   --mode native \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
@@ -118,7 +111,27 @@ git pull
 ./deploy/run-bot.sh notice-bot up
 ```
 
-## 7. 换新对话窗口时怎么继续
+## 7. GitHub 自动构建镜像
+
+项目包含 GitHub Actions 工作流：
+
+```text
+.github/workflows/docker-image.yml
+```
+
+推送 `main` 分支后会自动构建并推送镜像：
+
+```text
+ghcr.io/dayou0168/telegram-forward-bot:latest
+```
+
+如果宝塔服务器拉取镜像时报 `unauthorized` 或 `denied`，进入 GitHub：
+
+```text
+仓库主页 -> 右侧 Packages -> telegram-forward-bot -> Package settings -> Change visibility -> Public
+```
+
+## 8. 换新对话窗口时怎么继续
 
 在新对话里直接说：
 

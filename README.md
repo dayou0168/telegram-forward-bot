@@ -20,14 +20,7 @@
 
 项目现在提供两种服务器部署方式，并支持直接 `curl` GitHub 上的脚本完成安装，不需要先手动 clone 项目。脚本会自动安装基础依赖、拉取或更新项目代码、创建 env 文件，然后启动机器人。
 
-当前仓库是 Private，服务器需要一个 GitHub token 才能读取脚本和代码。token 只需要能读取这个私有仓库内容即可：Fine-grained token 选择该仓库并授予 `Contents: Read-only`，Classic token 使用 `repo` 权限。
-
-先在服务器输入 GitHub token：
-
-```bash
-read -rsp "GitHub token: " GITHUB_TOKEN
-echo
-```
+当前仓库是 Public，服务器可以直接读取安装脚本和代码。如果以后把仓库改回 Private，再使用 GitHub token 读取 raw 脚本和 clone 代码。
 
 如果服务器上已经有重要业务，想跳过系统升级，可以加：
 
@@ -40,9 +33,8 @@ echo
 适合不想使用 Docker 的服务器。脚本会自动安装 git、Python、venv 和依赖，把项目放到 `/opt/tg-forward-bots/telegram-forward-bot`，并创建 systemd 服务，服务名类似 `tg-forward-notice_bot.service`。
 
 ```bash
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
-  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
   --mode native \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
@@ -72,9 +64,8 @@ bash deploy/run-native-bot.sh notice-bot stop
 适合希望隔离更干净、后续升级更省心的服务器。脚本会自动安装 git、Docker Engine 和 Docker Compose 插件，把项目放到 `/opt/tg-forward-bots/telegram-forward-bot`，创建 env 文件，然后启动对应机器人实例。
 
 ```bash
-curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
-  | sudo env GITHUB_TOKEN="${GITHUB_TOKEN}" bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/dayou0168/telegram-forward-bot/main/deploy/bootstrap.sh \
+  | sudo bash -s -- \
   --mode docker \
   --bot-name notice-bot \
   --bot-token "你的BotFather令牌" \
@@ -248,7 +239,15 @@ compose.baota.yaml
 /www/wwwroot/telegram-forward-bot
 ```
 
-这个宝塔模板把 `BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件或手动设置 `data/` 权限。
+这个宝塔模板直接拉取 GitHub Container Registry 镜像：
+
+```text
+ghcr.io/dayou0168/telegram-forward-bot:latest
+```
+
+`BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改机器人 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件、上传源码目录、准备 Dockerfile 或手动设置 `data/` 权限。
+
+如果宝塔拉镜像时报 `unauthorized` 或 `denied`，需要在 GitHub Packages 里把 `telegram-forward-bot` 容器包设置为 Public，或在服务器上登录 GHCR。
 
 如果宝塔提示 `project name must not be empty`，创建 Compose 项目时项目名称填写：
 
