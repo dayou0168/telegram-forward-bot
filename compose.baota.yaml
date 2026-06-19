@@ -1,3 +1,5 @@
+name: tg-forward-notice-bot
+
 services:
   tg-forward-bot:
     build:

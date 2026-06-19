@@ -6,6 +6,18 @@
 
 `compose.baota.yaml` 已经做成宝塔一键模板：不需要额外创建 env 文件，也不需要手动设置数据库目录权限。只要项目源码已经放到 `build.context` 指定目录，宝塔里粘贴模板、改 `BOT_TOKEN` 和 `OWNER_USER_IDS` 两行，然后创建 Compose 项目即可。
 
+如果宝塔提示 `project name must not be empty`，说明创建 Compose 项目时项目名称为空。模板里已经内置：
+
+```yaml
+name: tg-forward-notice-bot
+```
+
+如果宝塔界面仍然要求填写「项目名称」，就填：
+
+```text
+tg-forward-notice-bot
+```
+
 ## 1. 准备项目目录
 
 建议固定放在：
@@ -46,6 +58,8 @@ telegram-forward-bot-notice
 模板内容使用项目里的 `compose.baota.yaml`，或者直接复制下面内容：
 
 ```yaml
+name: tg-forward-notice-bot
+
 services:
   tg-forward-bot:
     build:
@@ -123,6 +137,8 @@ docker logs -f tg-forward-notice-bot
 把 Compose 模板中的这些字段改掉：
 
 ```yaml
+name: tg-forward-customer-bot
+
 services:
   tg-forward-customer-bot:
     build:
