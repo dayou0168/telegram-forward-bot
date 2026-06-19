@@ -16,3 +16,4 @@ services:
 
 volumes:
   tg_forward_notice_data:
+    name: tg_forward_notice_data

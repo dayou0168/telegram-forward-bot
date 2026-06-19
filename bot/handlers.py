@@ -593,13 +593,7 @@ async def on_my_chat_member(update: ChatMemberUpdated, session: AsyncSession) ->
     )
 
 
-@router.message(F.chat.type.in_({"group", "supergroup", "channel"}))
-async def remember_group_from_message(
-    message: Message,
-    bot: Bot,
-    session: AsyncSession,
-    settings: Settings,
-) -> None:
+async def _register_chat_from_message(message: Message, session: AsyncSession) -> None:
     if message.migrate_to_chat_id:
         await repo.migrate_chat(
             session,
@@ -619,6 +613,27 @@ async def remember_group_from_message(
         username=message.chat.username,
         status="active",
     )
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("register", "sync_group"))
+async def register_group_command(message: Message, session: AsyncSession) -> None:
+    await _register_chat_from_message(message, session)
+    await message.answer(
+        "已登记当前群组。\n\n"
+        f"群组：{message.chat.title or message.chat.id}\n"
+        f"群ID：{message.chat.id}\n\n"
+        "现在可以到机器人私聊里的「分组管理」把这个群添加到分组。"
+    )
+
+
+@router.message(F.chat.type.in_({"group", "supergroup", "channel"}))
+async def remember_group_from_message(
+    message: Message,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await _register_chat_from_message(message, session)
     await _notify_reply_if_needed(message=message, bot=bot, session=session, settings=settings)
 
 

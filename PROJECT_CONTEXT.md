@@ -25,7 +25,7 @@
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
 - `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，镜像名 `ghcr.io/dayou0168/telegram-forward-bot:latest`。
-- `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和 Docker 命名卷，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
+- `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
 - `deploy/bootstrap.sh`：远程一键安装入口，支持 `curl ... | sudo bash -s -- --mode native|docker`，会自动安装 git、拉取/更新项目，再调用本地安装脚本。
@@ -49,6 +49,7 @@
 ## 分组与群组规则
 
 - 机器人被拉入群后会登记群组。
+- 机器人收到群内消息时会自动登记群组；重装后如果数据库丢失，机器人不能主动列出已加入群，可关闭 BotFather Group Privacy 等新消息触发自动登记，或在群里发送 `/register` 登记当前群。
 - 操作人添加群组到分组时，只能看到自己已经加入的群组；宿主可以看到全部已登记群组。
 - 分组支持创建、重命名、删除。
 - 分组内群组支持单个添加、删除和批量添加。
@@ -57,7 +58,7 @@
 
 - 发送使用 Telegram `copyMessage`，目标群不会显示原始转发来源。
 - 支持确认发送、一次性快捷发送、连续快捷发送。
-- Telegram 电脑版菜单里只保留 `/start`、`/menu`、`/id`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
+- Telegram 电脑版私聊菜单里只保留 `/start`、`/menu`、`/id`；群聊菜单里保留 `/register`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
 - 中文快捷指令仍支持：
   - `发送到 分组名`
   - `快捷发送 分组名`

@@ -78,6 +78,7 @@ services:
 
 volumes:
   tg_forward_notice_data:
+    name: tg_forward_notice_data
 ```
 
 只需要改两行：
@@ -110,6 +111,8 @@ tg-forward-notice-bot
 ```
 
 创建后宝塔会拉取 GHCR 镜像并启动容器。
+
+注意：数据库保存在 Docker 命名卷 `tg_forward_notice_data`。重建/重启容器不会丢数据，但如果在宝塔里删除了这个数据卷，分组、操作人、已登记群组都会丢失。
 
 ## 5. 查看日志
 
@@ -156,6 +159,7 @@ services:
 
 volumes:
   tg_forward_customer_data:
+    name: tg_forward_customer_data
 ```
 
 ## 7. 升级代码
@@ -225,3 +229,37 @@ Actions -> Docker Image
 - `BOT_TOKEN` 没填或填错。
 - `OWNER_USER_IDS` 不是 Telegram 数字 UID。
 - Telegram API 在当前服务器网络不可达。
+
+### 重新安装后看不到机器人已经在的群
+
+这是 Telegram Bot API 的限制：机器人不能主动列出自己已经加入过的全部群。群记录来自三类情况：
+
+- 机器人被新拉入群时的入群事件。
+- 群里有人发消息，机器人收到后自动登记当前群。
+- 群里有人发送 `/register`，机器人主动登记当前群。
+
+如果重装时换了新数据库或删除了 Docker 数据卷，旧群记录就会消失；Telegram 不会因为机器人“已经在群里”再次推送入群事件。
+
+想尽量自动恢复，可以在 BotFather 里关闭 Group Privacy：
+
+```text
+/setprivacy
+选择你的机器人
+Disable
+```
+
+关闭后，已经有机器人的群里只要有人发一条消息，机器人就会自动重新登记。没有任何新消息的群，仍需要发送：
+
+```text
+/register
+```
+
+机器人回复“已登记当前群组”后，回到机器人私聊，在「分组管理」把这个群重新添加到对应分组。
+
+以后升级或重建容器时，不要删除 Docker 命名卷：
+
+```text
+tg_forward_notice_data
+```
+
+这个卷保存 SQLite 数据库。
