@@ -24,7 +24,9 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
+- `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板，默认项目路径 `/www/wwwroot/telegram-forward-bot`。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
+- `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
 - `deploy/bootstrap.sh`：远程一键安装入口，支持 `curl ... | sudo bash -s -- --mode native|docker`，会自动安装 git、拉取/更新项目，再调用本地安装脚本。
 - `deploy/run-bot.sh`：多机器人实例部署脚本。
 - `deploy/install-docker.sh`：Ubuntu/Debian Docker Compose 一键安装脚本，会安装 Docker Engine 和 Compose 插件。

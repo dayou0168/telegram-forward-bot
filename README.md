@@ -234,6 +234,26 @@ BOT_ENV_FILE=deploy/envs/customer-bot.env docker compose -f compose.yaml -p tg_f
 
 项目同时保留 `docker-compose.yml` 兼容旧习惯，但标准 Compose 入口是 `compose.yaml`。部署脚本会显式使用 `compose.yaml`。
 
+## 宝塔 Docker Compose 部署
+
+如果要在宝塔面板的 Docker Compose 容器编排里部署，推荐使用项目里的：
+
+```text
+compose.baota.yaml
+```
+
+宝塔 Compose 模板更适合使用绝对路径，所以这个文件默认项目目录为：
+
+```text
+/www/wwwroot/telegram-forward-bot
+```
+
+详细步骤见：
+
+```text
+docs/BAOTA_DOCKER_COMPOSE.md
+```
+
 ## 本地运行
 
 ```bash

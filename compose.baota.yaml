@@ -1,0 +1,12 @@
+services:
+  tg-forward-bot:
+    build:
+      context: /www/wwwroot/telegram-forward-bot
+      dockerfile: Dockerfile
+    image: tg-forward-bot:notice-bot
+    container_name: tg-forward-notice-bot
+    restart: unless-stopped
+    env_file:
+      - /www/wwwroot/telegram-forward-bot/deploy/envs/notice-bot.env
+    volumes:
+      - /www/wwwroot/telegram-forward-bot/data:/app/data
