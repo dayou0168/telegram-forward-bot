@@ -81,6 +81,8 @@ class OperatorFeaturePermission(TimestampMixin, Base):
     allow_group_broadcast: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     allow_direct_send: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     allow_manage_operators: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    receive_sent_notifications: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    receive_reply_notifications: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class OperatorChatPermission(TimestampMixin, Base):

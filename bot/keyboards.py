@@ -338,6 +338,9 @@ def operator_detail(
     allow_direct_send: bool,
     allow_manage_operators: bool,
     can_toggle_manage_operators: bool,
+    receive_sent_notifications: bool,
+    receive_reply_notifications: bool,
+    can_toggle_visibility: bool,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=f"分组权限 ({group_count})", callback_data=f"op:groups:{user.user_id}")
@@ -345,10 +348,15 @@ def operator_detail(
     group_text = "群发：开启" if allow_group_broadcast else "群发：关闭"
     direct_text = "单群：开启" if allow_direct_send else "单群：关闭"
     manage_text = "下级：开启" if allow_manage_operators else "下级：关闭"
+    sent_text = "看发送：开启" if receive_sent_notifications else "看发送：关闭"
+    reply_text = "看回复：开启" if receive_reply_notifications else "看回复：关闭"
     builder.button(text=group_text, callback_data=f"op:feature:{user.user_id}:group_broadcast")
     builder.button(text=direct_text, callback_data=f"op:feature:{user.user_id}:direct_send")
     if can_toggle_manage_operators:
         builder.button(text=manage_text, callback_data=f"op:feature:{user.user_id}:manage_operators")
+    if can_toggle_visibility:
+        builder.button(text=sent_text, callback_data=f"op:feature:{user.user_id}:sent_notifications")
+        builder.button(text=reply_text, callback_data=f"op:feature:{user.user_id}:reply_notifications")
     builder.button(text="编辑备注", callback_data=f"op:remark:{user.user_id}")
     if user.status == "active":
         builder.button(text="停用操作人", callback_data=f"op:disable:{user.user_id}")
@@ -356,7 +364,7 @@ def operator_detail(
         builder.button(text="启用操作人", callback_data=f"op:enable:{user.user_id}")
     builder.button(text="删除操作人", callback_data=f"op:delete:{user.user_id}")
     builder.button(text="返回权限管理", callback_data="menu:operators")
-    builder.adjust(2, 2, 1, 1, 1, 1)
+    builder.adjust(2, 2, 1, 2, 1, 1, 1, 1)
     return builder.as_markup()
 
 

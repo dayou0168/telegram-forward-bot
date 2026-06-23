@@ -39,6 +39,20 @@ async def init_db(session_factory: async_sessionmaker[AsyncSession]) -> None:
                         "ADD COLUMN allow_manage_operators BOOLEAN NOT NULL DEFAULT 1"
                     )
                 )
+            if "receive_sent_notifications" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN receive_sent_notifications BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+            if "receive_reply_notifications" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN receive_reply_notifications BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
 
 
 class DbSessionMiddleware(BaseMiddleware):

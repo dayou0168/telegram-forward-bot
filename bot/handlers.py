@@ -238,6 +238,9 @@ async def _operator_detail_markup(
         allow_direct_send=flags.allow_direct_send,
         allow_manage_operators=allow_manage_operators,
         can_toggle_manage_operators=can_toggle_manage_operators,
+        receive_sent_notifications=flags.receive_sent_notifications,
+        receive_reply_notifications=flags.receive_reply_notifications,
+        can_toggle_visibility=viewer_role == "owner",
     )
 
 
@@ -402,18 +405,21 @@ async def _notify_owners_operator_sent_message(
     source_message_id: int,
     target_text: str,
 ) -> None:
-    if operator_user_id in settings.owner_user_ids:
+    recipients = set(settings.owner_user_ids)
+    recipients.update(await repo.list_operator_ids_with_feature(session, "sent_notifications"))
+    recipients.discard(operator_user_id)
+    if not recipients:
         return
     operator = await repo.get_operator(session, operator_user_id)
     label = str(operator_user_id)
     if operator is not None:
         label = operator.remark or operator.first_name or operator.username or str(operator.user_id)
     notice = f"操作人发送消息\n\n操作人：{label} ({operator_user_id})\n目标：{target_text}"
-    for owner_id in settings.owner_user_ids:
+    for user_id in recipients:
         try:
-            await bot.send_message(owner_id, notice)
+            await bot.send_message(user_id, notice)
             await bot.copy_message(
-                chat_id=owner_id,
+                chat_id=user_id,
                 from_chat_id=source_chat_id,
                 message_id=source_message_id,
             )
@@ -448,6 +454,16 @@ async def _edit_replied_original_message(
             return True
         except TelegramAPIError:
             pass
+    if message.reply_to_message.photo and message.reply_to_message.caption and replacement.text_is_configured:
+        try:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id,
+                caption=replacement.text,
+            )
+            return True
+        except TelegramAPIError:
+            return False
     if message.reply_to_message.photo:
         return False
 
@@ -820,6 +836,7 @@ async def _notify_reply_if_needed(
     )
 
     recipients = set(settings.owner_user_ids)
+    recipients.update(await repo.list_operator_ids_with_feature(session, "reply_notifications"))
     if match is not None:
         operator_role = await repo.get_user_role(session, match.operator_user_id, settings.owner_user_ids)
         if operator_role is not None:
@@ -1968,6 +1985,8 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
         f"分组群发：{'开启' if flags.allow_group_broadcast else '关闭'}\n"
         f"单群发送：{'开启' if flags.allow_direct_send else '关闭'}\n"
         f"设置下级：{'开启' if allow_manage_operators else '关闭'}\n"
+        f"可见发送：{'开启' if flags.receive_sent_notifications else '关闭'}\n"
+        f"可见回复：{'开启' if flags.receive_reply_notifications else '关闭'}\n"
         f"已授权分组：{group_count}\n"
         f"已授权单群：{chat_count}",
         keyboards.operator_detail(
@@ -1978,6 +1997,9 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
             allow_direct_send=flags.allow_direct_send,
             allow_manage_operators=allow_manage_operators,
             can_toggle_manage_operators=can_toggle_manage_operators,
+            receive_sent_notifications=flags.receive_sent_notifications,
+            receive_reply_notifications=flags.receive_reply_notifications,
+            can_toggle_visibility=role == "owner",
         ),
     )
 
@@ -2064,6 +2086,16 @@ async def op_feature_toggle(callback: CallbackQuery, session: AsyncSession, sett
             await callback.answer("只有宿主可以设置直属操作人的下级权限。", show_alert=False)
             return
         enabled = not flags.allow_manage_operators
+    elif feature == "sent_notifications":
+        if role != "owner":
+            await callback.answer("只有宿主可以设置消息可见权限。", show_alert=False)
+            return
+        enabled = not flags.receive_sent_notifications
+    elif feature == "reply_notifications":
+        if role != "owner":
+            await callback.answer("只有宿主可以设置消息可见权限。", show_alert=False)
+            return
+        enabled = not flags.receive_reply_notifications
     else:
         await callback.answer("未知权限。", show_alert=False)
         return

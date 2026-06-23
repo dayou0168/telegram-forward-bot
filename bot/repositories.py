@@ -40,6 +40,8 @@ class OperatorFeatureFlags:
     allow_group_broadcast: bool
     allow_direct_send: bool
     allow_manage_operators: bool
+    receive_sent_notifications: bool
+    receive_reply_notifications: bool
 
 
 @dataclass(frozen=True)
@@ -340,11 +342,15 @@ async def get_operator_feature_flags(session: AsyncSession, user_id: int) -> Ope
             allow_group_broadcast=True,
             allow_direct_send=True,
             allow_manage_operators=True,
+            receive_sent_notifications=False,
+            receive_reply_notifications=False,
         )
     return OperatorFeatureFlags(
         allow_group_broadcast=permission.allow_group_broadcast,
         allow_direct_send=permission.allow_direct_send,
         allow_manage_operators=permission.allow_manage_operators,
+        receive_sent_notifications=permission.receive_sent_notifications,
+        receive_reply_notifications=permission.receive_reply_notifications,
     )
 
 
@@ -370,6 +376,10 @@ async def set_operator_feature_flag(
         permission.allow_direct_send = enabled
     elif feature == "manage_operators":
         permission.allow_manage_operators = enabled
+    elif feature == "sent_notifications":
+        permission.receive_sent_notifications = enabled
+    elif feature == "reply_notifications":
+        permission.receive_reply_notifications = enabled
     else:
         return False
 
@@ -417,6 +427,26 @@ async def can_manage_child_operators(
         return False
     flags = await get_operator_feature_flags(session, user_id)
     return flags.allow_manage_operators
+
+
+async def list_operator_ids_with_feature(session: AsyncSession, feature: str) -> set[int]:
+    if feature == "sent_notifications":
+        column = OperatorFeaturePermission.receive_sent_notifications
+    elif feature == "reply_notifications":
+        column = OperatorFeaturePermission.receive_reply_notifications
+    else:
+        return set()
+
+    result = await session.execute(
+        select(AuthorizedUser.user_id)
+        .join(OperatorFeaturePermission, OperatorFeaturePermission.user_id == AuthorizedUser.user_id)
+        .where(
+            AuthorizedUser.role == "operator",
+            AuthorizedUser.status == "active",
+            column.is_(True),
+        )
+    )
+    return {int(user_id) for user_id in result.scalars().all()}
 
 
 async def bootstrap_legacy_operator_group_permissions(session: AsyncSession, changed_by: int) -> int:

@@ -24,7 +24,7 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.4` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.4`。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.6` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.6`。
 - `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
@@ -47,6 +47,7 @@
 - 非宿主、非操作人的私聊和按钮操作无效。
 - 每个操作人有独立的“分组群发”和“单群发送”开关。
 - 宿主直属操作人有独立的“设置下级”开关；只有宿主可开启或关闭。下级操作人不能继续创建操作人。
+- 宿主可以给操作人单独开启“看发送”和“看回复”，允许其看到其他操作人通过机器人发送的内容和群内回复通知。
 - 宿主可以给操作人单独勾选可单群发送的群；单群发送权限不从分组权限自动推导。
 - 操作人本人不需要加入目标群；只要机器人在群内且操作人有对应权限，就可以通过机器人发送和快速回复。
 
@@ -63,7 +64,7 @@
 - 发送使用 Telegram `copyMessage`，目标群不会显示原始转发来源。
 - 分组发送和指定群发送都支持确认发送、一次性快捷发送、连续快捷发送。
 - 支持在发送入口切换“分组发送”和“指定群发送”；指定群发送只投递到单个已授权群。
-- 操作人通过机器人发送到群内的内容会同步通知宿主；群内回复通知也会发给宿主。
+- 操作人通过机器人发送到群内的内容会同步通知宿主和开启“看发送”的操作人；群内回复通知会发给宿主、原发送操作人和开启“看回复”的操作人。
 - Telegram 电脑版私聊菜单里只保留 `/start`、`/menu`、`/id`；群聊菜单里保留 `/register`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
 - 中文快捷指令仍支持：
   - `发送到 分组名`
@@ -75,7 +76,7 @@
 
 当群成员回复机器人投递到群内的那条消息时，机器人会私聊通知宿主和当时发送的操作人。
 
-- 默认会尝试编辑群里“被回复的那条机器人投递消息”，隐藏原投递内容，不删除群成员发出的回复消息。宿主可以在机器人主菜单的“机器人配置”里分别设置固定替换文字和固定替换图片；文字原消息会替换成固定文字，图片原消息会替换成固定图片，只有宿主设置过固定文字时才会同时替换 caption。可用 `REPLY_AUTO_EDIT_ORIGINAL=false` 关闭；`REPLY_ORIGINAL_REPLACEMENT_TEXT` 是默认替换文案；旧变量 `REPLY_AUTO_DELETE_ORIGINAL=false` 仍兼容。
+- 默认会尝试编辑群里“被回复的那条机器人投递消息”，隐藏原投递内容，不删除群成员发出的回复消息。宿主可以在机器人主菜单的“机器人配置”里分别设置固定替换文字和固定替换图片；文字原消息会替换成固定文字，图片原消息会替换成固定图片，图片+caption 可按已设置的固定图片/固定文字分别替换图片和 caption。可用 `REPLY_AUTO_EDIT_ORIGINAL=false` 关闭；`REPLY_ORIGINAL_REPLACEMENT_TEXT` 是默认替换文案；旧变量 `REPLY_AUTO_DELETE_ORIGINAL=false` 仍兼容。
 - 纯文字回复会合并进一条通知，不再额外复制原消息。
 - 通知只显示可点击的群名、可点击的发送人和内容预览，不显示任务号或发送人 UID。
 - 图片、视频、文件、语音等媒体回复会优先复制原媒体，并把同样的简洁通知放入媒体说明，按钮也挂在同一条媒体消息下面。
