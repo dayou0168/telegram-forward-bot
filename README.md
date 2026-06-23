@@ -249,7 +249,7 @@ compose.baota.yaml
 这个宝塔模板直接拉取 GitHub Container Registry 镜像：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:0.2.2
+ghcr.io/dayou0168/telegram-forward-bot:0.2.3
 ```
 
 `BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改机器人 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件、上传源码目录、准备 Dockerfile 或手动设置 `data/` 权限。
@@ -401,13 +401,15 @@ docs/GITHUB_SETUP.md
 
 机器人发送消息到群后，如果群成员直接回复机器人发出的那条消息，机器人会把这条回复私聊通知给宿主，并通知当时触发发送的操作人。
 
-默认情况下，机器人会尝试编辑群里被回复的那条机器人投递消息，隐藏原投递内容，但不会删除群成员发出的回复消息。如果要关闭，可在环境变量里设置：
+默认情况下，机器人会尝试编辑群里被回复的那条机器人投递消息，隐藏原投递内容，但不会删除群成员发出的回复消息。宿主可以在主菜单进入「机器人配置」，分别设置固定替换文字和固定替换图片；文字原消息会替换成固定文字，图片原消息会替换成固定图片和固定文字。
+
+如果要关闭自动编辑，可在环境变量里设置：
 
 ```env
 REPLY_AUTO_EDIT_ORIGINAL=false
 ```
 
-如果要改编辑后的提示文字，可设置：
+如果要改默认提示文字，可设置：
 
 ```env
 REPLY_ORIGINAL_REPLACEMENT_TEXT=已收到回复，原投递内容已隐藏。

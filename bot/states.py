@@ -18,3 +18,8 @@ class SendForm(StatesGroup):
 
 class ReplyForm(StatesGroup):
     wait_message = State()
+
+
+class ConfigForm(StatesGroup):
+    replacement_text = State()
+    replacement_photo = State()

@@ -141,6 +141,13 @@ class DirectSendMessage(TimestampMixin, Base):
     sent_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class BotSetting(TimestampMixin, Base):
+    __tablename__ = "bot_settings"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class AuditLog(TimestampMixin, Base):
     __tablename__ = "audit_logs"
 

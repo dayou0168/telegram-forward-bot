@@ -8,13 +8,13 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, ChatMemberUpdated, InputMediaPhoto, Message, ReplyKeyboardRemove
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import Settings
 from bot import keyboards
 from bot import repositories as repo
-from bot.states import GroupForm, OperatorForm, ReplyForm, SendForm
+from bot.states import ConfigForm, GroupForm, OperatorForm, ReplyForm, SendForm
 
 router = Router()
 
@@ -421,6 +421,51 @@ async def _notify_owners_operator_sent_message(
             continue
 
 
+async def _edit_replied_original_message(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    message: Message,
+) -> bool:
+    replacement = await repo.get_reply_original_replacement(
+        session,
+        settings.reply_original_replacement_text,
+    )
+    if message.reply_to_message.photo and replacement.photo_file_id:
+        try:
+            await bot.edit_message_media(
+                chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id,
+                media=InputMediaPhoto(
+                    media=replacement.photo_file_id,
+                    caption=replacement.text,
+                ),
+            )
+            return True
+        except TelegramAPIError:
+            pass
+    if message.reply_to_message.photo:
+        return False
+
+    try:
+        if message.reply_to_message.text:
+            await bot.edit_message_text(
+                replacement.text,
+                chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id,
+            )
+        else:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id,
+                caption=replacement.text,
+            )
+        return True
+    except TelegramAPIError:
+        return False
+
+
 def _format_uid_text(user: Any) -> str:
     username = f"@{user.username}" if getattr(user, "username", None) else "无"
     full_name = getattr(user, "full_name", None) or getattr(user, "first_name", None) or "无"
@@ -780,19 +825,12 @@ async def _notify_reply_if_needed(
     original_edited = False
     if settings.reply_auto_edit_original and match is not None:
         try:
-            if message.reply_to_message.text:
-                await bot.edit_message_text(
-                    settings.reply_original_replacement_text,
-                    chat_id=message.chat.id,
-                    message_id=message.reply_to_message.message_id,
-                )
-            else:
-                await bot.edit_message_caption(
-                    chat_id=message.chat.id,
-                    message_id=message.reply_to_message.message_id,
-                    caption=settings.reply_original_replacement_text,
-                )
-            original_edited = True
+            original_edited = await _edit_replied_original_message(
+                bot=bot,
+                session=session,
+                settings=settings,
+                message=message,
+            )
             await repo.add_audit_log(
                 session,
                 match.operator_user_id,
@@ -1242,6 +1280,113 @@ async def menu_main(callback: CallbackQuery, session: AsyncSession, settings: Se
     if role is None:
         return
     await _show_main_menu(callback, role)
+
+
+@router.callback_query(F.data == "config:reply_original")
+async def config_reply_original(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings, owner_required=True)
+    if role is None:
+        return
+    replacement = await repo.get_reply_original_replacement(
+        session,
+        settings.reply_original_replacement_text,
+    )
+    photo_status = "已设置" if replacement.photo_file_id else "未设置"
+    current = (
+        f"固定文字：{replacement.text}\n"
+        f"固定图片：{photo_status}\n\n"
+        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片和固定文字。"
+    )
+    await _safe_edit(
+        callback,
+        f"回复后原消息替换\n\n{current}",
+        keyboards.reply_original_config(),
+    )
+
+
+@router.callback_query(F.data == "config:reply_original:text")
+async def config_reply_original_text(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(callback, session, settings, owner_required=True)
+    if role is None:
+        return
+    await state.set_state(ConfigForm.replacement_text)
+    await _safe_edit(
+        callback,
+        "请发送固定替换文字。\n\n有人回复文字类投递消息后，原投递消息会被编辑成这段文字。",
+        keyboards.cancel_keyboard(),
+    )
+
+
+@router.message(ConfigForm.replacement_text)
+async def config_reply_original_text_value(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(message, session, settings, owner_required=True)
+    if role is None:
+        return
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("替换文字不能为空，请重新发送。", reply_markup=keyboards.cancel_keyboard())
+        return
+    if len(text) > 1024:
+        await message.answer("替换文字不能超过 1024 个字符，请重新发送。", reply_markup=keyboards.cancel_keyboard())
+        return
+    await repo.set_reply_original_replacement_text(session, text, changed_by=message.from_user.id)
+    await state.clear()
+    await message.answer("已设置固定替换文字。", reply_markup=keyboards.main_menu(role))
+
+
+@router.callback_query(F.data == "config:reply_original:photo")
+async def config_reply_original_photo(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(callback, session, settings, owner_required=True)
+    if role is None:
+        return
+    await state.set_state(ConfigForm.replacement_photo)
+    await _safe_edit(
+        callback,
+        "请发送一张固定替换图片。\n\n有人回复图片类投递消息后，机器人会把原消息替换成这张图片和固定文字。",
+        keyboards.cancel_keyboard(),
+    )
+
+
+@router.message(ConfigForm.replacement_photo)
+async def config_reply_original_photo_value(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(message, session, settings, owner_required=True)
+    if role is None:
+        return
+    if not message.photo:
+        await message.answer("请发送一张图片。", reply_markup=keyboards.cancel_keyboard())
+        return
+    caption = (message.caption or settings.reply_original_replacement_text).strip()
+    if len(caption) > 1024:
+        await message.answer("图片说明不能超过 1024 个字符，请重新发送。", reply_markup=keyboards.cancel_keyboard())
+        return
+    await repo.set_reply_original_replacement_photo(
+        session,
+        photo_file_id=message.photo[-1].file_id,
+        caption=caption,
+        changed_by=message.from_user.id,
+    )
+    await state.clear()
+    await message.answer("已设置固定替换图片。", reply_markup=keyboards.main_menu(role))
 
 
 @router.callback_query(F.data == "menu:groups")

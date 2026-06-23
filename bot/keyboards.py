@@ -28,7 +28,11 @@ def main_menu(role: str) -> InlineKeyboardMarkup:
     builder.button(text="快捷发送", callback_data="quick:choose")
     builder.button(text="权限管理", callback_data="menu:operators")
     builder.button(text="查询UID", callback_data="op:pick_user")
-    builder.adjust(2, 2, 2)
+    if role == "owner":
+        builder.button(text="机器人配置", callback_data="config:reply_original")
+        builder.adjust(2, 2, 2, 1)
+    else:
+        builder.adjust(2, 2, 2)
     return builder.as_markup()
 
 
@@ -256,6 +260,15 @@ def confirm_direct_send(chat_id: int) -> InlineKeyboardMarkup:
     builder.button(text="确认发送", callback_data=f"send:confirm_chat:{chat_id}")
     builder.button(text="取消", callback_data="send:cancel")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+def reply_original_config() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="改成文字", callback_data="config:reply_original:text")
+    builder.button(text="改成图片", callback_data="config:reply_original:photo")
+    builder.button(text="返回主菜单", callback_data="menu:main")
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 

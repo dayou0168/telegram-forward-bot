@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from bot.models import (
     AuditLog,
     AuthorizedUser,
+    BotSetting,
     DeliveryGroup,
     DeliveryGroupChat,
     DirectSendMessage,
@@ -41,6 +42,16 @@ class OperatorFeatureFlags:
     allow_manage_operators: bool
 
 
+@dataclass(frozen=True)
+class ReplyOriginalReplacement:
+    text: str
+    photo_file_id: str | None = None
+
+
+REPLY_REPLACEMENT_TEXT_KEY = "reply_original_replacement_text"
+REPLY_REPLACEMENT_PHOTO_KEY = "reply_original_replacement_photo_file_id"
+
+
 async def ensure_owner_users(session: AsyncSession, owner_user_ids: frozenset[int]) -> None:
     for user_id in owner_user_ids:
         user = await session.get(AuthorizedUser, user_id)
@@ -57,6 +68,46 @@ async def ensure_owner_users(session: AsyncSession, owner_user_ids: frozenset[in
             user.role = "owner"
             user.status = "active"
             user.remark = user.remark or "env owner"
+
+
+async def get_bot_setting(session: AsyncSession, key: str) -> str | None:
+    setting = await session.get(BotSetting, key)
+    if setting is None:
+        return None
+    return setting.value
+
+
+async def set_bot_setting(session: AsyncSession, key: str, value: str) -> None:
+    setting = await session.get(BotSetting, key)
+    if setting is None:
+        session.add(BotSetting(key=key, value=value))
+    else:
+        setting.value = value
+
+
+async def get_reply_original_replacement(
+    session: AsyncSession,
+    default_text: str,
+) -> ReplyOriginalReplacement:
+    text = await get_bot_setting(session, REPLY_REPLACEMENT_TEXT_KEY) or default_text
+    photo_file_id = await get_bot_setting(session, REPLY_REPLACEMENT_PHOTO_KEY)
+    return ReplyOriginalReplacement(text=text, photo_file_id=photo_file_id)
+
+
+async def set_reply_original_replacement_text(session: AsyncSession, text: str, changed_by: int) -> None:
+    await set_bot_setting(session, REPLY_REPLACEMENT_TEXT_KEY, text)
+    await add_audit_log(session, changed_by, "set_reply_original_replacement_text", "bot_setting", None, text[:500])
+
+
+async def set_reply_original_replacement_photo(
+    session: AsyncSession,
+    *,
+    photo_file_id: str,
+    caption: str,
+    changed_by: int,
+) -> None:
+    await set_bot_setting(session, REPLY_REPLACEMENT_PHOTO_KEY, photo_file_id)
+    await add_audit_log(session, changed_by, "set_reply_original_replacement_photo", "bot_setting", None, caption[:500])
 
 
 async def get_user_role(
