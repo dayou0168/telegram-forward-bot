@@ -2,7 +2,7 @@ name: tg-forward-notice-bot
 
 services:
   tg-forward-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.0
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.1
     container_name: tg-forward-notice-bot
     restart: unless-stopped
     environment:

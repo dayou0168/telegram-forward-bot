@@ -200,6 +200,7 @@ def send_chat_selector(chats: Sequence[TgChat], page: int) -> InlineKeyboardMark
 
 def quick_group_selector(groups: Sequence[DeliveryGroupSummary]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="切换到指定群快捷发送", callback_data="quick:chat_choose:0")
     for item in groups:
         builder.button(
             text=f"{_trim(item.group.name)} ({item.chat_count})",
@@ -210,12 +211,33 @@ def quick_group_selector(groups: Sequence[DeliveryGroupSummary]) -> InlineKeyboa
     return builder.as_markup()
 
 
+def quick_chat_selector(chats: Sequence[TgChat], page: int) -> InlineKeyboardMarkup:
+    return chats_page(
+        chats,
+        page=page,
+        page_callback="quick:chat_choose",
+        return_callback="quick:choose",
+        item_prefix="quick:chat",
+    )
+
+
 def quick_mode_selector(group: DeliveryGroup, chat_count: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="发下一条", callback_data=f"quick:once:{group.id}")
     builder.button(text="连续发送", callback_data=f"quick:keep:{group.id}")
     builder.button(text="带确认发送", callback_data=f"send:group:{group.id}")
     builder.button(text="返回分组选择", callback_data="quick:choose")
+    builder.button(text="返回主菜单", callback_data="menu:main")
+    builder.adjust(2, 1, 1, 1)
+    return builder.as_markup()
+
+
+def quick_chat_mode_selector(chat: TgChat) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="发下一条", callback_data=f"quick:chat_once:{chat.chat_id}")
+    builder.button(text="连续发送", callback_data=f"quick:chat_keep:{chat.chat_id}")
+    builder.button(text="带确认发送", callback_data=f"send:chat:{chat.chat_id}")
+    builder.button(text="返回指定群选择", callback_data="quick:chat_choose:0")
     builder.button(text="返回主菜单", callback_data="menu:main")
     builder.adjust(2, 1, 1, 1)
     return builder.as_markup()

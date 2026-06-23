@@ -2260,14 +2260,100 @@ async def quick_choose(callback: CallbackQuery, session: AsyncSession, settings:
     role = await _role_or_reject(callback, session, settings)
     if role is None:
         return
-    if not await _require_group_broadcast_enabled(callback, session, role):
-        return
-    groups = await repo.list_accessible_delivery_groups(session, callback.from_user.id, role)
-    active_groups = [item for item in groups if item.chat_count > 0]
-    text = "快捷发送\n\n请选择目标分组。"
-    if not active_groups:
-        text = "暂无可快捷发送的分组。请先创建分组并添加群组。"
+    active_groups = []
+    group_send_enabled = await repo.can_group_broadcast(session, callback.from_user.id, role)
+    if group_send_enabled:
+        groups = await repo.list_accessible_delivery_groups(session, callback.from_user.id, role)
+        active_groups = [item for item in groups if item.chat_count > 0]
+    text = "快捷发送\n\n请选择目标分组，或切换到指定群快捷发送。"
+    if not group_send_enabled:
+        text = "分组群发权限已关闭。\n\n可以切换到指定群快捷发送。"
+    elif not active_groups:
+        text = "暂无可快捷发送的分组。请先创建分组并添加群组，或切换到指定群快捷发送。"
     await _safe_edit(callback, text, keyboards.quick_group_selector(active_groups))
+
+
+@router.callback_query(F.data.startswith("quick:chat_choose"))
+async def quick_chat_choose(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    parts = callback.data.split(":")
+    page = int(parts[2]) if len(parts) > 2 else 0
+    if not await _require_direct_send_enabled(callback, session, role):
+        return
+    chats = await repo.list_direct_send_chats(session, callback.from_user.id, role)
+    if chats:
+        max_page = max(0, (len(chats) - 1) // keyboards.PAGE_SIZE)
+        page = min(max(page, 0), max_page)
+    else:
+        page = 0
+    text = "指定群快捷发送\n\n请选择目标群。"
+    if not chats:
+        text = "暂无可单独快捷发送的群。请让宿主在权限管理里给你勾选单群权限。"
+    await _safe_edit(callback, text, keyboards.quick_chat_selector(chats, page))
+
+
+@router.callback_query(F.data.startswith("quick:chat:"))
+async def quick_chat(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    if not await _require_direct_send_enabled(callback, session, role):
+        return
+    chat_id = int(callback.data.split(":")[2])
+    if not await _require_chat_access(callback, session, role, chat_id):
+        return
+    chat = await repo.get_active_chat(session, chat_id)
+    if chat is None:
+        await _safe_edit(callback, "群组不存在或不可用。", keyboards.back_to_main())
+        return
+    await _safe_edit(
+        callback,
+        f"快捷发送：{chat.title}\n\n"
+        "发下一条：下一条私聊消息直接投递，发送后自动退出。\n"
+        "连续发送：之后每条私聊消息都直接投递，直到点击停止。",
+        keyboards.quick_chat_mode_selector(chat),
+    )
+
+
+@router.callback_query(F.data.startswith("quick:chat_once:") | F.data.startswith("quick:chat_keep:"))
+async def quick_chat_mode_start(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    if not await _require_direct_send_enabled(callback, session, role):
+        return
+    parts = callback.data.split(":")
+    mode = parts[1]
+    chat_id = int(parts[2])
+    if not await _require_chat_access(callback, session, role, chat_id):
+        return
+    chat = await repo.get_active_chat(session, chat_id)
+    if chat is None:
+        await _safe_edit(callback, "群组不存在或不可用。", keyboards.back_to_main())
+        return
+
+    keep_quick = mode == "chat_keep"
+    await state.set_state(SendForm.wait_message)
+    await state.update_data(target_type="chat", chat_id=chat_id, auto_send=True, keep_quick=keep_quick)
+    if keep_quick:
+        text = (
+            f"已开启连续快捷发送：{chat.title}\n\n"
+            "接下来你私聊发送的每条单条消息都会自动投递到这个群。\n"
+            "点击下面按钮即可停止。"
+        )
+    else:
+        text = (
+            f"已开启下一条快捷发送：{chat.title}\n\n"
+            "请发送下一条要投递的消息，机器人会直接发送，不再二次确认。"
+        )
+    await _safe_edit(callback, text, keyboards.cancel_keyboard())
 
 
 @router.callback_query(F.data.startswith("quick:group:"))
@@ -2420,6 +2506,28 @@ async def send_wait_message(
             await state.clear()
             await message.answer("群组不存在或不可用。", reply_markup=keyboards.back_to_main())
             return
+        if data.get("auto_send"):
+            keep_quick = bool(data.get("keep_quick"))
+            report, ok = await _deliver_message_to_chat(
+                bot=bot,
+                session=session,
+                settings=settings,
+                operator_user_id=message.from_user.id,
+                target_chat_id=chat_id,
+                source_chat_id=message.chat.id,
+                source_message_id=message.message_id,
+            )
+            if keep_quick:
+                await state.set_state(SendForm.wait_message)
+                await state.update_data(target_type="chat", chat_id=chat_id, auto_send=True, keep_quick=True)
+                await message.answer(
+                    "已发送。继续发送下一条，或点击「取消 / 停止」退出。" if ok else report,
+                    reply_markup=keyboards.cancel_keyboard(),
+                )
+            else:
+                await state.clear()
+                await message.answer("已发送。" if ok else report, reply_markup=keyboards.main_menu(role))
+            return
         await state.set_state(SendForm.confirm)
         await state.update_data(
             target_type="chat",
@@ -2452,8 +2560,7 @@ async def send_wait_message(
         return
     if data.get("auto_send"):
         keep_quick = bool(data.get("keep_quick"))
-        await message.answer(f"开始发送到「{group.name}」，目标群数量：{target_count}。")
-        report, _ = await _deliver_message_to_group(
+        report, ok = await _deliver_message_to_group(
             bot=bot,
             session=session,
             settings=settings,
@@ -2466,12 +2573,12 @@ async def send_wait_message(
             await state.set_state(SendForm.wait_message)
             await state.update_data(target_type="group", group_id=group_id, auto_send=True, keep_quick=True)
             await message.answer(
-                report + "\n\n快捷发送模式仍在开启，继续发消息会继续投递。点击「取消 / 停止」退出。",
+                "已发送。继续发送下一条，或点击「取消 / 停止」退出。" if ok else report,
                 reply_markup=keyboards.cancel_keyboard(),
             )
         else:
             await state.clear()
-            await message.answer(report, reply_markup=keyboards.main_menu(role))
+            await message.answer("已发送。" if ok else report, reply_markup=keyboards.main_menu(role))
         return
     await state.set_state(SendForm.confirm)
     await state.update_data(

@@ -248,7 +248,7 @@ compose.baota.yaml
 这个宝塔模板直接拉取 GitHub Container Registry 镜像：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:0.2.0
+ghcr.io/dayou0168/telegram-forward-bot:0.2.1
 ```
 
 `BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改机器人 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件、上传源码目录、准备 Dockerfile 或手动设置 `data/` 权限。
@@ -331,7 +331,7 @@ python -m bot.main
 → 发下一条 / 连续发送
 ```
 
-为了适配 Telegram 电脑版，机器人私聊命令菜单里默认只保留 `/start`、`/menu`、`/id`；群聊命令菜单里保留 `/register` 用于登记当前群组。`/quick`、`/to`、`/cancel` 仍然支持手动输入，但不会放在左下角命令菜单里，避免点了命令还要继续补参数。
+快捷发送入口支持选择分组，也可以切换到指定群。为了适配 Telegram 电脑版，机器人私聊命令菜单里默认只保留 `/start`、`/menu`、`/id`；群聊命令菜单里保留 `/register` 用于登记当前群组。`/quick`、`/to`、`/cancel` 仍然支持手动输入，但不会放在左下角命令菜单里，避免点了命令还要继续补参数。
 
 备用中文消息如下。
 

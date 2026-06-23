@@ -24,7 +24,7 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.0` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.0`。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.1` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.1`。
 - `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
@@ -61,7 +61,7 @@
 ## 发送规则
 
 - 发送使用 Telegram `copyMessage`，目标群不会显示原始转发来源。
-- 支持确认发送、一次性快捷发送、连续快捷发送。
+- 分组发送和指定群发送都支持确认发送、一次性快捷发送、连续快捷发送。
 - 支持在发送入口切换“分组发送”和“指定群发送”；指定群发送只投递到单个已授权群。
 - 操作人通过机器人发送到群内的内容会同步通知宿主；群内回复通知也会发给宿主。
 - Telegram 电脑版私聊菜单里只保留 `/start`、`/menu`、`/id`；群聊菜单里保留 `/register`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
