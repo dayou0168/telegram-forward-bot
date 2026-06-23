@@ -24,7 +24,7 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.1` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.1`。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.2` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.2`。
 - `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
@@ -75,7 +75,7 @@
 
 当群成员回复机器人投递到群内的那条消息时，机器人会私聊通知宿主和当时发送的操作人。
 
-- 默认会尝试删除群里“被回复的那条机器人投递消息”，不删除群成员发出的回复消息；需要机器人在群里有删除消息权限。可用 `REPLY_AUTO_DELETE_ORIGINAL=false` 关闭。
+- 默认会尝试编辑群里“被回复的那条机器人投递消息”，隐藏原投递内容，不删除群成员发出的回复消息。可用 `REPLY_AUTO_EDIT_ORIGINAL=false` 关闭；用 `REPLY_ORIGINAL_REPLACEMENT_TEXT` 设置替换文案；旧变量 `REPLY_AUTO_DELETE_ORIGINAL=false` 仍兼容。
 - 纯文字回复会合并进一条通知，不再额外复制原消息。
 - 通知只显示可点击的群名、可点击的发送人和内容预览，不显示任务号或发送人 UID。
 - 图片、视频、文件、语音等媒体回复会优先复制原媒体，并把同样的简洁通知放入媒体说明，按钮也挂在同一条媒体消息下面。

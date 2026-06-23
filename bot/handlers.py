@@ -777,29 +777,37 @@ async def _notify_reply_if_needed(
         if operator_role is not None:
             recipients.add(match.operator_user_id)
 
-    original_deleted = False
-    if settings.reply_auto_delete_original and match is not None:
+    original_edited = False
+    if settings.reply_auto_edit_original and match is not None:
         try:
-            await bot.delete_message(
-                chat_id=message.chat.id,
-                message_id=message.reply_to_message.message_id,
-            )
-            original_deleted = True
+            if message.reply_to_message.text:
+                await bot.edit_message_text(
+                    settings.reply_original_replacement_text,
+                    chat_id=message.chat.id,
+                    message_id=message.reply_to_message.message_id,
+                )
+            else:
+                await bot.edit_message_caption(
+                    chat_id=message.chat.id,
+                    message_id=message.reply_to_message.message_id,
+                    caption=settings.reply_original_replacement_text,
+                )
+            original_edited = True
             await repo.add_audit_log(
                 session,
                 match.operator_user_id,
-                "auto_delete_replied_original",
+                "auto_edit_replied_original",
                 match.target_type,
                 str(match.target_id),
                 f"chat={message.chat.id}, original={message.reply_to_message.message_id}, reply={message.message_id}",
             )
             await session.commit()
         except TelegramAPIError:
-            original_deleted = False
+            original_edited = False
 
     reply_url = _telegram_message_url(message.chat.id, message.message_id, message.chat.username)
     original_url = None
-    if not original_deleted:
+    if not original_edited:
         original_url = _telegram_message_url(
             message.chat.id,
             message.reply_to_message.message_id,

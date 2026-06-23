@@ -172,7 +172,8 @@ BOT_TOKEN=第一个机器人Token
 OWNER_USER_IDS=123456789
 DATABASE_URL=sqlite+aiosqlite:///./data/notice-bot.db
 UNAUTHORIZED_REPLY=true
-REPLY_AUTO_DELETE_ORIGINAL=true
+REPLY_AUTO_EDIT_ORIGINAL=true
+REPLY_ORIGINAL_REPLACEMENT_TEXT=已收到回复，原投递内容已隐藏。
 SEND_DELAY_SECONDS=0.08
 ```
 
@@ -248,7 +249,7 @@ compose.baota.yaml
 这个宝塔模板直接拉取 GitHub Container Registry 镜像：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:0.2.1
+ghcr.io/dayou0168/telegram-forward-bot:0.2.2
 ```
 
 `BOT_TOKEN`、`OWNER_USER_IDS` 直接写在 Compose 环境变量里，并使用 Docker 命名卷保存 SQLite 数据库。宝塔里只需要改机器人 token 和 UID 两行，然后创建 Compose 项目即可，不需要额外创建 env 文件、上传源码目录、准备 Dockerfile 或手动设置 `data/` 权限。
@@ -400,10 +401,16 @@ docs/GITHUB_SETUP.md
 
 机器人发送消息到群后，如果群成员直接回复机器人发出的那条消息，机器人会把这条回复私聊通知给宿主，并通知当时触发发送的操作人。
 
-默认情况下，机器人会尝试删除群里被回复的那条机器人投递消息，但不会删除群成员发出的回复消息。这个功能要求机器人在群里拥有删除消息权限；如果要关闭，可在环境变量里设置：
+默认情况下，机器人会尝试编辑群里被回复的那条机器人投递消息，隐藏原投递内容，但不会删除群成员发出的回复消息。如果要关闭，可在环境变量里设置：
 
 ```env
-REPLY_AUTO_DELETE_ORIGINAL=false
+REPLY_AUTO_EDIT_ORIGINAL=false
+```
+
+如果要改编辑后的提示文字，可设置：
+
+```env
+REPLY_ORIGINAL_REPLACEMENT_TEXT=已收到回复，原投递内容已隐藏。
 ```
 
 纯文字回复会直接合并到通知内容里，不再额外复制一条原消息。通知只显示可点击的群名、可点击的发送人和内容预览，不显示任务号或发送人 UID。图片、视频、文件、语音等媒体回复会优先复制原媒体，并把同样的简洁通知放进媒体说明里，快捷按钮也会挂在同一条消息下面；贴纸、位置等不适合带说明的消息会发送一条摘要通知，再附上原消息。
