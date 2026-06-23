@@ -439,7 +439,10 @@ async def _edit_replied_original_message(
                 message_id=message.reply_to_message.message_id,
                 media=InputMediaPhoto(
                     media=replacement.photo_file_id,
-                    caption=replacement.text,
+                    caption=replacement.text if replacement.text_is_configured else message.reply_to_message.caption,
+                    caption_entities=None
+                    if replacement.text_is_configured
+                    else message.reply_to_message.caption_entities,
                 ),
             )
             return True
@@ -1295,7 +1298,7 @@ async def config_reply_original(callback: CallbackQuery, session: AsyncSession, 
     current = (
         f"固定文字：{replacement.text}\n"
         f"固定图片：{photo_status}\n\n"
-        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片和固定文字。"
+        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片。只有设置过固定文字时，才会同时替换 caption。"
     )
     await _safe_edit(
         callback,
@@ -1357,7 +1360,7 @@ async def config_reply_original_photo(
     await state.set_state(ConfigForm.replacement_photo)
     await _safe_edit(
         callback,
-        "请发送一张固定替换图片。\n\n有人回复图片类投递消息后，机器人会把原消息替换成这张图片和固定文字。",
+        "请发送一张固定替换图片。\n\n有人回复图片类投递消息后，机器人会把原消息替换成这张图片；只有设置过固定文字时，才会同时替换文字说明。",
         keyboards.cancel_keyboard(),
     )
 

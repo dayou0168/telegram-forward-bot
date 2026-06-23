@@ -45,6 +45,7 @@ class OperatorFeatureFlags:
 @dataclass(frozen=True)
 class ReplyOriginalReplacement:
     text: str
+    text_is_configured: bool
     photo_file_id: str | None = None
 
 
@@ -89,9 +90,14 @@ async def get_reply_original_replacement(
     session: AsyncSession,
     default_text: str,
 ) -> ReplyOriginalReplacement:
-    text = await get_bot_setting(session, REPLY_REPLACEMENT_TEXT_KEY) or default_text
+    configured_text = await get_bot_setting(session, REPLY_REPLACEMENT_TEXT_KEY)
+    text = configured_text or default_text
     photo_file_id = await get_bot_setting(session, REPLY_REPLACEMENT_PHOTO_KEY)
-    return ReplyOriginalReplacement(text=text, photo_file_id=photo_file_id)
+    return ReplyOriginalReplacement(
+        text=text,
+        text_is_configured=configured_text is not None,
+        photo_file_id=photo_file_id,
+    )
 
 
 async def set_reply_original_replacement_text(session: AsyncSession, text: str, changed_by: int) -> None:
