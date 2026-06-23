@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bot.config import Settings, ensure_sqlite_parent_dir
@@ -29,6 +29,16 @@ async def init_db(session_factory: async_sessionmaker[AsyncSession]) -> None:
     engine = session_factory.kw["bind"]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if str(engine.url).startswith("sqlite+aiosqlite"):
+            result = await conn.execute(text("PRAGMA table_info(operator_feature_permissions)"))
+            columns = {row[1] for row in result.fetchall()}
+            if "allow_manage_operators" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN allow_manage_operators BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                )
 
 
 class DbSessionMiddleware(BaseMiddleware):

@@ -177,6 +177,7 @@ def chats_library(chats: Sequence[TgChat], page: int) -> InlineKeyboardMarkup:
 
 def send_group_selector(groups: Sequence[DeliveryGroupSummary]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="切换到指定群发送", callback_data="send:chat_choose:0")
     for item in groups:
         builder.button(
             text=f"{_trim(item.group.name)} ({item.chat_count})",
@@ -185,6 +186,16 @@ def send_group_selector(groups: Sequence[DeliveryGroupSummary]) -> InlineKeyboar
     builder.button(text="返回主菜单", callback_data="menu:main")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def send_chat_selector(chats: Sequence[TgChat], page: int) -> InlineKeyboardMarkup:
+    return chats_page(
+        chats,
+        page=page,
+        page_callback="send:chat_choose",
+        return_callback="send:choose",
+        item_prefix="send:chat",
+    )
 
 
 def quick_group_selector(groups: Sequence[DeliveryGroupSummary]) -> InlineKeyboardMarkup:
@@ -213,6 +224,14 @@ def quick_mode_selector(group: DeliveryGroup, chat_count: int) -> InlineKeyboard
 def confirm_send(group_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="确认发送", callback_data=f"send:confirm:{group_id}")
+    builder.button(text="取消", callback_data="send:cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def confirm_direct_send(chat_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="确认发送", callback_data=f"send:confirm_chat:{chat_id}")
     builder.button(text="取消", callback_data="send:cancel")
     builder.adjust(2)
     return builder.as_markup()
@@ -275,9 +294,26 @@ def user_picker_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def operator_detail(user: AuthorizedUser, group_count: int) -> InlineKeyboardMarkup:
+def operator_detail(
+    user: AuthorizedUser,
+    group_count: int,
+    chat_count: int,
+    *,
+    allow_group_broadcast: bool,
+    allow_direct_send: bool,
+    allow_manage_operators: bool,
+    can_toggle_manage_operators: bool,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=f"分组权限 ({group_count})", callback_data=f"op:groups:{user.user_id}")
+    builder.button(text=f"单群权限 ({chat_count})", callback_data=f"op:chats:{user.user_id}:0")
+    group_text = "群发：开启" if allow_group_broadcast else "群发：关闭"
+    direct_text = "单群：开启" if allow_direct_send else "单群：关闭"
+    manage_text = "下级：开启" if allow_manage_operators else "下级：关闭"
+    builder.button(text=group_text, callback_data=f"op:feature:{user.user_id}:group_broadcast")
+    builder.button(text=direct_text, callback_data=f"op:feature:{user.user_id}:direct_send")
+    if can_toggle_manage_operators:
+        builder.button(text=manage_text, callback_data=f"op:feature:{user.user_id}:manage_operators")
     builder.button(text="编辑备注", callback_data=f"op:remark:{user.user_id}")
     if user.status == "active":
         builder.button(text="停用操作人", callback_data=f"op:disable:{user.user_id}")
@@ -285,7 +321,7 @@ def operator_detail(user: AuthorizedUser, group_count: int) -> InlineKeyboardMar
         builder.button(text="启用操作人", callback_data=f"op:enable:{user.user_id}")
     builder.button(text="删除操作人", callback_data=f"op:delete:{user.user_id}")
     builder.button(text="返回权限管理", callback_data="menu:operators")
-    builder.adjust(2, 1, 1, 1)
+    builder.adjust(2, 2, 1, 1, 1, 1)
     return builder.as_markup()
 
 
@@ -309,6 +345,31 @@ def operator_group_permissions(
             text=f"{marker} {_trim(item.group.name)} ({item.chat_count})",
             callback_data=f"op:group_toggle:{user_id}:{item.group.id}",
         )
+    builder.button(text="返回操作人详情", callback_data=f"op:view:{user_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def operator_chat_permissions(
+    user_id: int,
+    chats: Sequence[TgChat],
+    allowed_chat_ids: set[int],
+    page: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    total = len(chats)
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    for chat in chats[start:end]:
+        marker = "[x]" if chat.chat_id in allowed_chat_ids else "[ ]"
+        builder.button(
+            text=f"{marker} {_trim(chat.title, 22)} | {chat.chat_id}",
+            callback_data=f"op:chat_toggle:{user_id}:{page}:{chat.chat_id}",
+        )
+    if page > 0:
+        builder.button(text="上一页", callback_data=f"op:chats:{user_id}:{page - 1}")
+    if end < total:
+        builder.button(text="下一页", callback_data=f"op:chats:{user_id}:{page + 1}")
     builder.button(text="返回操作人详情", callback_data=f"op:view:{user_id}")
     builder.adjust(1)
     return builder.as_markup()

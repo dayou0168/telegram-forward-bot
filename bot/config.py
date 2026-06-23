@@ -35,6 +35,7 @@ class Settings:
     owner_user_ids: frozenset[int]
     database_url: str
     unauthorized_reply: bool
+    reply_auto_delete_original: bool
     send_delay_seconds: float
 
 
@@ -63,6 +64,7 @@ def load_settings() -> Settings:
         owner_user_ids=owner_user_ids,
         database_url=database_url,
         unauthorized_reply=_parse_bool(os.getenv("UNAUTHORIZED_REPLY"), True),
+        reply_auto_delete_original=_parse_bool(os.getenv("REPLY_AUTO_DELETE_ORIGINAL"), True),
         send_delay_seconds=max(0.0, send_delay_seconds),
     )
 

@@ -9,7 +9,7 @@
 项目使用 GitHub Actions 自动构建 Docker 镜像，并推送到 GitHub Container Registry：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:latest
+ghcr.io/dayou0168/telegram-forward-bot:0.2.0
 ```
 
 宝塔模板 `compose.baota.yaml` 会直接拉这个镜像运行：
@@ -23,7 +23,7 @@ ghcr.io/dayou0168/telegram-forward-bot:latest
 
 ## 2. 确认镜像已发布
 
-每次推送 `main` 分支后，GitHub Actions 会运行 `Docker Image` 工作流。
+每次推送 `main` 分支或 `v*.*.*` 版本标签后，GitHub Actions 会运行 `Docker Image` 工作流。
 
 在 GitHub 仓库里查看：
 
@@ -34,7 +34,7 @@ Actions -> Docker Image
 工作流成功后，镜像地址是：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:latest
+ghcr.io/dayou0168/telegram-forward-bot:0.2.0
 ```
 
 如果宝塔拉镜像时报 `unauthorized` 或 `denied`，说明 GHCR 包还不是公开可拉取。进入 GitHub：
@@ -64,7 +64,7 @@ name: tg-forward-notice-bot
 
 services:
   tg-forward-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:latest
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.0
     container_name: tg-forward-notice-bot
     restart: unless-stopped
     environment:
@@ -72,6 +72,7 @@ services:
       OWNER_USER_IDS: "替换为你的Telegram数字UID"
       DATABASE_URL: "sqlite+aiosqlite:///./data/notice-bot.db"
       UNAUTHORIZED_REPLY: "true"
+      REPLY_AUTO_DELETE_ORIGINAL: "true"
       SEND_DELAY_SECONDS: "0.08"
     volumes:
       - tg_forward_notice_data:/app/data
@@ -145,7 +146,7 @@ name: tg-forward-customer-bot
 
 services:
   tg-forward-customer-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:latest
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.0
     container_name: tg-forward-customer-bot
     restart: unless-stopped
     environment:
@@ -153,6 +154,7 @@ services:
       OWNER_USER_IDS: "第二个机器人的宿主Telegram数字UID"
       DATABASE_URL: "sqlite+aiosqlite:///./data/customer-bot.db"
       UNAUTHORIZED_REPLY: "true"
+      REPLY_AUTO_DELETE_ORIGINAL: "true"
       SEND_DELAY_SECONDS: "0.08"
     volumes:
       - tg_forward_customer_data:/app/data
@@ -164,7 +166,7 @@ volumes:
 
 ## 7. 升级代码
 
-代码推送到 GitHub 后，`Docker Image` 工作流会自动构建并推送新的 `latest` 镜像。
+代码推送到 GitHub 并创建版本标签后，`Docker Image` 工作流会自动构建并推送对应版本镜像。
 
 升级服务器上的机器人：
 
@@ -175,7 +177,7 @@ volumes:
 如果宝塔没有自动拉取新镜像，可以先删除旧镜像：
 
 ```bash
-docker rmi ghcr.io/dayou0168/telegram-forward-bot:latest
+docker rmi ghcr.io/dayou0168/telegram-forward-bot:0.2.0
 ```
 
 然后再在宝塔里重建 Compose 项目。

@@ -2,7 +2,7 @@ name: tg-forward-notice-bot
 
 services:
   tg-forward-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:latest
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.0
     container_name: tg-forward-notice-bot
     restart: unless-stopped
     environment:
@@ -10,6 +10,7 @@ services:
       OWNER_USER_IDS: "替换为你的Telegram数字UID"
       DATABASE_URL: "sqlite+aiosqlite:///./data/notice-bot.db"
       UNAUTHORIZED_REPLY: "true"
+      REPLY_AUTO_DELETE_ORIGINAL: "true"
       SEND_DELAY_SECONDS: "0.08"
     volumes:
       - tg_forward_notice_data:/app/data

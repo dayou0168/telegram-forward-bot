@@ -11,6 +11,9 @@ from bot.models import (
     AuthorizedUser,
     DeliveryGroup,
     DeliveryGroupChat,
+    DirectSendMessage,
+    OperatorChatPermission,
+    OperatorFeaturePermission,
     OperatorGroupPermission,
     SendJob,
     SendJobTarget,
@@ -26,8 +29,16 @@ class DeliveryGroupSummary:
 
 @dataclass(frozen=True)
 class SentMessageMatch:
-    target: SendJobTarget
-    job: SendJob
+    operator_user_id: int
+    target_type: str
+    target_id: int
+
+
+@dataclass(frozen=True)
+class OperatorFeatureFlags:
+    allow_group_broadcast: bool
+    allow_direct_send: bool
+    allow_manage_operators: bool
 
 
 async def ensure_owner_users(session: AsyncSession, owner_user_ids: frozenset[int]) -> None:
@@ -155,12 +166,7 @@ async def can_create_child_operator(
     manager_role: str,
     owner_user_ids: frozenset[int],
 ) -> bool:
-    if manager_role == "owner":
-        return True
-    if manager_role != "operator":
-        return False
-    manager = await get_operator(session, manager_user_id)
-    return manager is not None and manager.created_by in owner_user_ids
+    return await can_manage_child_operators(session, manager_user_id, manager_role, owner_user_ids)
 
 
 async def add_operator(
@@ -236,6 +242,8 @@ async def delete_operator(session: AsyncSession, user_id: int, deleted_by: int) 
     await session.execute(
         delete(OperatorGroupPermission).where(OperatorGroupPermission.user_id == user_id)
     )
+    await session.execute(delete(OperatorChatPermission).where(OperatorChatPermission.user_id == user_id))
+    await session.execute(delete(OperatorFeaturePermission).where(OperatorFeaturePermission.user_id == user_id))
     await add_audit_log(
         session,
         deleted_by,
@@ -266,6 +274,92 @@ async def count_operator_group_permissions(session: AsyncSession, user_id: int) 
         )
     )
     return int(result.scalar_one())
+
+
+async def get_operator_feature_flags(session: AsyncSession, user_id: int) -> OperatorFeatureFlags:
+    permission = await session.get(OperatorFeaturePermission, user_id)
+    if permission is None:
+        return OperatorFeatureFlags(
+            allow_group_broadcast=True,
+            allow_direct_send=True,
+            allow_manage_operators=True,
+        )
+    return OperatorFeatureFlags(
+        allow_group_broadcast=permission.allow_group_broadcast,
+        allow_direct_send=permission.allow_direct_send,
+        allow_manage_operators=permission.allow_manage_operators,
+    )
+
+
+async def set_operator_feature_flag(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    feature: str,
+    enabled: bool,
+    changed_by: int,
+) -> bool:
+    user = await get_operator(session, user_id)
+    if user is None:
+        return False
+    permission = await session.get(OperatorFeaturePermission, user_id)
+    if permission is None:
+        permission = OperatorFeaturePermission(user_id=user_id)
+        session.add(permission)
+        await session.flush()
+    if feature == "group_broadcast":
+        permission.allow_group_broadcast = enabled
+    elif feature == "direct_send":
+        permission.allow_direct_send = enabled
+    elif feature == "manage_operators":
+        permission.allow_manage_operators = enabled
+    else:
+        return False
+
+    await add_audit_log(
+        session,
+        changed_by,
+        "set_operator_feature_flag",
+        "operator_feature_permission",
+        f"{user_id}:{feature}",
+        f"enabled={enabled}",
+    )
+    return True
+
+
+async def can_group_broadcast(session: AsyncSession, user_id: int, role: str) -> bool:
+    if role == "owner":
+        return True
+    if role != "operator":
+        return False
+    flags = await get_operator_feature_flags(session, user_id)
+    return flags.allow_group_broadcast
+
+
+async def can_direct_send(session: AsyncSession, user_id: int, role: str) -> bool:
+    if role == "owner":
+        return True
+    if role != "operator":
+        return False
+    flags = await get_operator_feature_flags(session, user_id)
+    return flags.allow_direct_send
+
+
+async def can_manage_child_operators(
+    session: AsyncSession,
+    user_id: int,
+    role: str,
+    owner_user_ids: frozenset[int],
+) -> bool:
+    if role == "owner":
+        return True
+    if role != "operator":
+        return False
+    user = await get_operator(session, user_id)
+    if user is None or user.created_by not in owner_user_ids:
+        return False
+    flags = await get_operator_feature_flags(session, user_id)
+    return flags.allow_manage_operators
 
 
 async def bootstrap_legacy_operator_group_permissions(session: AsyncSession, changed_by: int) -> int:
@@ -340,6 +434,63 @@ async def set_operator_group_access(
         "set_operator_group_access",
         "operator_group_permission",
         f"{user_id}:{group_id}",
+        f"enabled={enabled}",
+    )
+    return True
+
+
+async def list_operator_chat_ids(session: AsyncSession, user_id: int) -> set[int]:
+    result = await session.execute(
+        select(OperatorChatPermission.chat_id).where(
+            OperatorChatPermission.user_id == user_id,
+            OperatorChatPermission.enabled.is_(True),
+        )
+    )
+    return {int(chat_id) for chat_id in result.scalars().all()}
+
+
+async def count_operator_chat_permissions(session: AsyncSession, user_id: int) -> int:
+    result = await session.execute(
+        select(func.count(OperatorChatPermission.id)).where(
+            OperatorChatPermission.user_id == user_id,
+            OperatorChatPermission.enabled.is_(True),
+        )
+    )
+    return int(result.scalar_one())
+
+
+async def set_operator_chat_access(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    chat_id: int,
+    enabled: bool,
+    changed_by: int,
+) -> bool:
+    user = await get_operator(session, user_id)
+    chat = await get_active_chat(session, chat_id)
+    if user is None or chat is None:
+        return False
+
+    result = await session.execute(
+        select(OperatorChatPermission).where(
+            OperatorChatPermission.user_id == user_id,
+            OperatorChatPermission.chat_id == chat_id,
+        )
+    )
+    permission = result.scalar_one_or_none()
+    if permission is None:
+        permission = OperatorChatPermission(user_id=user_id, chat_id=chat_id, enabled=enabled)
+        session.add(permission)
+    else:
+        permission.enabled = enabled
+
+    await add_audit_log(
+        session,
+        changed_by,
+        "set_operator_chat_access",
+        "operator_chat_permission",
+        f"{user_id}:{chat_id}",
         f"enabled={enabled}",
     )
     return True
@@ -432,6 +583,13 @@ async def list_chats(session: AsyncSession, status: str | None = None) -> list[T
     return list(result.scalars().all())
 
 
+async def get_active_chat(session: AsyncSession, chat_id: int) -> TgChat | None:
+    chat = await session.get(TgChat, chat_id)
+    if chat is None or chat.status != "active":
+        return None
+    return chat
+
+
 async def get_delivery_group(session: AsyncSession, group_id: int) -> DeliveryGroup | None:
     return await session.get(DeliveryGroup, group_id)
 
@@ -508,7 +666,7 @@ async def list_chats_for_accessible_groups(
     role: str,
 ) -> list[TgChat]:
     if role == "owner":
-        return await list_chats(session)
+        return await list_chats(session, status="active")
 
     result = await session.execute(
         select(TgChat)
@@ -529,6 +687,49 @@ async def list_chats_for_accessible_groups(
         .order_by(TgChat.title, TgChat.chat_id)
     )
     return list(result.scalars().all())
+
+
+async def list_direct_send_chats(
+    session: AsyncSession,
+    user_id: int,
+    role: str,
+) -> list[TgChat]:
+    if role == "owner":
+        return await list_chats(session, status="active")
+
+    result = await session.execute(
+        select(TgChat)
+        .join(OperatorChatPermission, OperatorChatPermission.chat_id == TgChat.chat_id)
+        .where(
+            OperatorChatPermission.user_id == user_id,
+            OperatorChatPermission.enabled.is_(True),
+            TgChat.status == "active",
+        )
+        .order_by(TgChat.title, TgChat.chat_id)
+    )
+    return list(result.scalars().all())
+
+
+async def has_chat_access(
+    session: AsyncSession,
+    user_id: int,
+    role: str,
+    chat_id: int,
+) -> bool:
+    chat = await get_active_chat(session, chat_id)
+    if chat is None:
+        return False
+    if role == "owner":
+        return True
+
+    result = await session.execute(
+        select(OperatorChatPermission.id).where(
+            OperatorChatPermission.user_id == user_id,
+            OperatorChatPermission.chat_id == chat_id,
+            OperatorChatPermission.enabled.is_(True),
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def group_name_exists(
@@ -759,6 +960,35 @@ async def finish_send_job(session: AsyncSession, job_id: int, success_count: int
     )
 
 
+async def record_direct_send_message(
+    session: AsyncSession,
+    *,
+    operator_user_id: int,
+    target_chat_id: int,
+    source_chat_id: int,
+    source_message_id: int,
+    sent_message_id: int,
+) -> DirectSendMessage:
+    record = DirectSendMessage(
+        operator_user_id=operator_user_id,
+        target_chat_id=target_chat_id,
+        source_chat_id=source_chat_id,
+        source_message_id=source_message_id,
+        sent_message_id=sent_message_id,
+    )
+    session.add(record)
+    await session.flush()
+    await add_audit_log(
+        session,
+        operator_user_id,
+        "direct_send_message",
+        "direct_send_message",
+        str(record.id),
+        f"chat={target_chat_id}, sent={sent_message_id}",
+    )
+    return record
+
+
 async def find_sent_message_match(
     session: AsyncSession,
     target_chat_id: int,
@@ -775,7 +1005,27 @@ async def find_sent_message_match(
         .order_by(SendJobTarget.id.desc())
     )
     row = result.first()
-    if row is None:
+    if row is not None:
+        target, job = row
+        return SentMessageMatch(
+            operator_user_id=job.operator_user_id,
+            target_type="send_job_target",
+            target_id=target.id,
+        )
+
+    direct_result = await session.execute(
+        select(DirectSendMessage)
+        .where(
+            DirectSendMessage.target_chat_id == target_chat_id,
+            DirectSendMessage.sent_message_id == sent_message_id,
+        )
+        .order_by(DirectSendMessage.id.desc())
+    )
+    direct = direct_result.scalars().first()
+    if direct is None:
         return None
-    target, job = row
-    return SentMessageMatch(target=target, job=job)
+    return SentMessageMatch(
+        operator_user_id=direct.operator_user_id,
+        target_type="direct_send_message",
+        target_id=direct.id,
+    )

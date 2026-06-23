@@ -101,6 +101,74 @@ async def _has_message_group_access(
     return False
 
 
+async def _require_chat_access(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    role: str,
+    chat_id: int,
+) -> bool:
+    if await repo.has_chat_access(session, callback.from_user.id, role, chat_id):
+        return True
+    await _safe_edit(callback, "无权限访问这个群。", keyboards.main_menu(role))
+    return False
+
+
+async def _has_message_chat_access(
+    message: Message,
+    session: AsyncSession,
+    role: str,
+    chat_id: int,
+) -> bool:
+    if await repo.has_chat_access(session, message.from_user.id, role, chat_id):
+        return True
+    await message.answer("无权限访问这个群。", reply_markup=keyboards.main_menu(role))
+    return False
+
+
+async def _require_group_broadcast_enabled(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    role: str,
+) -> bool:
+    if await repo.can_group_broadcast(session, callback.from_user.id, role):
+        return True
+    await _safe_edit(callback, "你的分组群发权限已关闭。", keyboards.main_menu(role))
+    return False
+
+
+async def _has_message_group_broadcast_enabled(
+    message: Message,
+    session: AsyncSession,
+    role: str,
+) -> bool:
+    if await repo.can_group_broadcast(session, message.from_user.id, role):
+        return True
+    await message.answer("你的分组群发权限已关闭。", reply_markup=keyboards.main_menu(role))
+    return False
+
+
+async def _require_direct_send_enabled(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    role: str,
+) -> bool:
+    if await repo.can_direct_send(session, callback.from_user.id, role):
+        return True
+    await _safe_edit(callback, "你的单群发送权限已关闭。", keyboards.main_menu(role))
+    return False
+
+
+async def _has_message_direct_send_enabled(
+    message: Message,
+    session: AsyncSession,
+    role: str,
+) -> bool:
+    if await repo.can_direct_send(session, message.from_user.id, role):
+        return True
+    await message.answer("你的单群发送权限已关闭。", reply_markup=keyboards.main_menu(role))
+    return False
+
+
 async def _require_operator_management_access(
     callback: CallbackQuery,
     session: AsyncSession,
@@ -144,6 +212,43 @@ async def _operators_menu_markup(
     if can_add:
         operators = await repo.list_manageable_operators(session, manager_user_id, role)
     return keyboards.operators_menu(operators, can_add_operator=can_add)
+
+
+async def _operator_detail_markup(
+    session: AsyncSession,
+    settings: Settings,
+    user: Any,
+    viewer_role: str = "owner",
+) -> Any:
+    group_count = await repo.count_operator_group_permissions(session, user.user_id)
+    chat_count = await repo.count_operator_chat_permissions(session, user.user_id)
+    flags = await repo.get_operator_feature_flags(session, user.user_id)
+    allow_manage_operators = await repo.can_manage_child_operators(
+        session,
+        user.user_id,
+        "operator",
+        settings.owner_user_ids,
+    )
+    can_toggle_manage_operators = viewer_role == "owner" and user.created_by in settings.owner_user_ids
+    return keyboards.operator_detail(
+        user,
+        group_count,
+        chat_count,
+        allow_group_broadcast=flags.allow_group_broadcast,
+        allow_direct_send=flags.allow_direct_send,
+        allow_manage_operators=allow_manage_operators,
+        can_toggle_manage_operators=can_toggle_manage_operators,
+    )
+
+
+async def _grantable_direct_chats(
+    *,
+    session: AsyncSession,
+    bot: Bot,
+    operator_user_id: int,
+    role: str,
+) -> list[Any]:
+    return await repo.list_direct_send_chats(session, operator_user_id, role)
 
 
 def _normalize_group_name(raw: str) -> str:
@@ -285,6 +390,35 @@ def _build_reply_notice(
         if max_length is None or len(notice) <= max_length or limit <= 60:
             return notice
         limit = max(60, limit - max(20, len(notice) - max_length))
+
+
+async def _notify_owners_operator_sent_message(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    operator_user_id: int,
+    source_chat_id: int,
+    source_message_id: int,
+    target_text: str,
+) -> None:
+    if operator_user_id in settings.owner_user_ids:
+        return
+    operator = await repo.get_operator(session, operator_user_id)
+    label = str(operator_user_id)
+    if operator is not None:
+        label = operator.remark or operator.first_name or operator.username or str(operator.user_id)
+    notice = f"操作人发送消息\n\n操作人：{label} ({operator_user_id})\n目标：{target_text}"
+    for owner_id in settings.owner_user_ids:
+        try:
+            await bot.send_message(owner_id, notice)
+            await bot.copy_message(
+                chat_id=owner_id,
+                from_chat_id=source_chat_id,
+                message_id=source_message_id,
+            )
+        except TelegramAPIError:
+            continue
 
 
 def _format_uid_text(user: Any) -> str:
@@ -537,7 +671,82 @@ async def _deliver_message_to_group(
         if len(failed_lines) > 10:
             report += f"\n... 另有 {len(failed_lines) - 10} 条失败"
 
+    if success_count > 0:
+        await _notify_owners_operator_sent_message(
+            bot=bot,
+            session=session,
+            settings=settings,
+            operator_user_id=operator_user_id,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
+            target_text=f"分组「{group.name}」({success_count}/{len(targets)})",
+        )
+
     return report, True
+
+
+async def _deliver_message_to_chat(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    operator_user_id: int,
+    target_chat_id: int,
+    source_chat_id: int,
+    source_message_id: int,
+) -> tuple[str, bool]:
+    chat = await repo.get_active_chat(session, target_chat_id)
+    if chat is None:
+        return "群组不存在或不可用，无法发送。", False
+
+    try:
+        sent_message = await bot.copy_message(
+            chat_id=chat.chat_id,
+            from_chat_id=source_chat_id,
+            message_id=source_message_id,
+        )
+        await repo.record_direct_send_message(
+            session,
+            operator_user_id=operator_user_id,
+            target_chat_id=chat.chat_id,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
+            sent_message_id=sent_message.message_id,
+        )
+        await session.commit()
+        await _notify_owners_operator_sent_message(
+            bot=bot,
+            session=session,
+            settings=settings,
+            operator_user_id=operator_user_id,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
+            target_text=f"群「{chat.title}」",
+        )
+        return f"发送完成\n\n目标群：{chat.title}\n成功：1\n失败：0", True
+    except TelegramForbiddenError as exc:
+        await repo.mark_chat_status(session, chat.chat_id, "no_permission")
+        await repo.add_audit_log(
+            session,
+            operator_user_id,
+            "direct_send_failed",
+            "tg_chat",
+            str(chat.chat_id),
+            str(exc)[:500],
+        )
+        await session.commit()
+        return f"发送失败\n\n目标群：{chat.title}\n原因：{str(exc)[:180]}", False
+    except TelegramAPIError as exc:
+        await repo.add_audit_log(
+            session,
+            operator_user_id,
+            "direct_send_failed",
+            "tg_chat",
+            str(chat.chat_id),
+            str(exc)[:500],
+        )
+        await session.commit()
+        return f"发送失败\n\n目标群：{chat.title}\n原因：{str(exc)[:180]}", False
 
 
 async def _notify_reply_if_needed(
@@ -564,16 +773,38 @@ async def _notify_reply_if_needed(
 
     recipients = set(settings.owner_user_ids)
     if match is not None:
-        operator_role = await repo.get_user_role(session, match.job.operator_user_id, settings.owner_user_ids)
+        operator_role = await repo.get_user_role(session, match.operator_user_id, settings.owner_user_ids)
         if operator_role is not None:
-            recipients.add(match.job.operator_user_id)
+            recipients.add(match.operator_user_id)
+
+    original_deleted = False
+    if settings.reply_auto_delete_original and match is not None:
+        try:
+            await bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id,
+            )
+            original_deleted = True
+            await repo.add_audit_log(
+                session,
+                match.operator_user_id,
+                "auto_delete_replied_original",
+                match.target_type,
+                str(match.target_id),
+                f"chat={message.chat.id}, original={message.reply_to_message.message_id}, reply={message.message_id}",
+            )
+            await session.commit()
+        except TelegramAPIError:
+            original_deleted = False
 
     reply_url = _telegram_message_url(message.chat.id, message.message_id, message.chat.username)
-    original_url = _telegram_message_url(
-        message.chat.id,
-        message.reply_to_message.message_id,
-        message.chat.username,
-    )
+    original_url = None
+    if not original_deleted:
+        original_url = _telegram_message_url(
+            message.chat.id,
+            message.reply_to_message.message_id,
+            message.chat.username,
+        )
     if original_url == reply_url:
         original_url = None
     reply_markup = keyboards.reply_notice_actions(
@@ -852,6 +1083,15 @@ async def reply_wait_message(
             "message",
             f"{target_chat_id}:{target_message_id}",
         )
+        await _notify_owners_operator_sent_message(
+            bot=bot,
+            session=session,
+            settings=settings,
+            operator_user_id=message.from_user.id,
+            source_chat_id=message.chat.id,
+            source_message_id=message.message_id,
+            target_text=f"快速回复 {target_chat_id}:{target_message_id}",
+        )
         await state.clear()
         await message.answer("已回复到群里。", reply_markup=keyboards.main_menu(role))
     except TelegramAPIError as exc:
@@ -873,6 +1113,10 @@ async def _start_quick_send_from_text(
     command: str,
     value: str,
 ) -> None:
+    if not await repo.can_group_broadcast(session, message.from_user.id, role):
+        await message.answer("你的分组群发权限已关闭。", reply_markup=keyboards.main_menu(role))
+        return
+
     if not value:
         await message.answer(
             "请输入分组名称或分组 ID。\n\n"
@@ -913,7 +1157,7 @@ async def _start_quick_send_from_text(
 
     keep_quick = command in {"quick", "q"}
     await state.set_state(SendForm.wait_message)
-    await state.update_data(group_id=group.id, auto_send=True, keep_quick=keep_quick)
+    await state.update_data(target_type="group", group_id=group.id, auto_send=True, keep_quick=keep_quick)
 
     if keep_quick:
         await message.answer(
@@ -1509,7 +1753,6 @@ async def menu_chats(callback: CallbackQuery, bot: Bot, session: AsyncSession, s
     parts = callback.data.split(":")
     page = int(parts[2]) if len(parts) > 2 else 0
     chats = await repo.list_chats_for_accessible_groups(session, callback.from_user.id, role)
-    chats = await _filter_chats_visible_to_operator(bot, chats, callback.from_user.id, role)
     text = "群组库\n\n机器人被拉入群后会自动登记。"
     if chats:
         text += "\n\n" + _format_chats(chats)
@@ -1548,6 +1791,15 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
         await _safe_edit(callback, "操作人不存在。", operators_markup)
         return
     group_count = await repo.count_operator_group_permissions(session, user_id)
+    chat_count = await repo.count_operator_chat_permissions(session, user_id)
+    flags = await repo.get_operator_feature_flags(session, user_id)
+    allow_manage_operators = await repo.can_manage_child_operators(
+        session,
+        user_id,
+        "operator",
+        settings.owner_user_ids,
+    )
+    can_toggle_manage_operators = role == "owner" and user.created_by in settings.owner_user_ids
     display_name = user.remark or user.first_name or "未备注用户"
     username = f"@{user.username}" if user.username else "无 username"
     await _safe_edit(
@@ -1557,8 +1809,20 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
         f"Username：{username}\n"
         f"UID：{user.user_id}\n"
         f"状态：{user.status}\n"
-        f"已授权分组：{group_count}",
-        keyboards.operator_detail(user, group_count),
+        f"分组群发：{'开启' if flags.allow_group_broadcast else '关闭'}\n"
+        f"单群发送：{'开启' if flags.allow_direct_send else '关闭'}\n"
+        f"设置下级：{'开启' if allow_manage_operators else '关闭'}\n"
+        f"已授权分组：{group_count}\n"
+        f"已授权单群：{chat_count}",
+        keyboards.operator_detail(
+            user,
+            group_count,
+            chat_count,
+            allow_group_broadcast=flags.allow_group_broadcast,
+            allow_direct_send=flags.allow_direct_send,
+            allow_manage_operators=allow_manage_operators,
+            can_toggle_manage_operators=can_toggle_manage_operators,
+        ),
     )
 
 
@@ -1624,6 +1888,128 @@ async def op_group_toggle(callback: CallbackQuery, session: AsyncSession, settin
     )
 
 
+@router.callback_query(F.data.startswith("op:feature:"))
+async def op_feature_toggle(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    _, _, user_id_raw, feature = callback.data.split(":")
+    user_id = int(user_id_raw)
+    if not await _require_operator_management_access(callback, session, settings, role, user_id):
+        return
+    flags = await repo.get_operator_feature_flags(session, user_id)
+    if feature == "group_broadcast":
+        enabled = not flags.allow_group_broadcast
+    elif feature == "direct_send":
+        enabled = not flags.allow_direct_send
+    elif feature == "manage_operators":
+        target = await repo.get_operator(session, user_id)
+        if role != "owner" or target is None or target.created_by not in settings.owner_user_ids:
+            await callback.answer("只有宿主可以设置直属操作人的下级权限。", show_alert=False)
+            return
+        enabled = not flags.allow_manage_operators
+    else:
+        await callback.answer("未知权限。", show_alert=False)
+        return
+    ok = await repo.set_operator_feature_flag(
+        session,
+        user_id=user_id,
+        feature=feature,
+        enabled=enabled,
+        changed_by=callback.from_user.id,
+    )
+    if not ok:
+        operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
+        await _safe_edit(callback, "操作人不存在。", operators_markup)
+        return
+    user = await repo.get_operator(session, user_id)
+    await _safe_edit(callback, "权限开关已更新。", await _operator_detail_markup(session, settings, user, role))
+
+
+@router.callback_query(F.data.startswith("op:chats:"))
+async def op_chats(callback: CallbackQuery, bot: Bot, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    _, _, user_id_raw, page_raw = callback.data.split(":")
+    user_id = int(user_id_raw)
+    page = int(page_raw)
+    if not await _require_operator_management_access(callback, session, settings, role, user_id):
+        return
+    user = await repo.get_operator(session, user_id)
+    if user is None:
+        operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
+        await _safe_edit(callback, "操作人不存在。", operators_markup)
+        return
+    chats = await _grantable_direct_chats(
+        session=session,
+        bot=bot,
+        operator_user_id=callback.from_user.id,
+        role=role,
+    )
+    allowed_chat_ids = await repo.list_operator_chat_ids(session, user_id)
+    visible_chat_ids = {chat.chat_id for chat in chats}
+    allowed_chat_ids &= visible_chat_ids
+    display_name = user.remark or user.first_name or str(user.user_id)
+    if chats:
+        max_page = max(0, (len(chats) - 1) // keyboards.PAGE_SIZE)
+        page = min(max(page, 0), max_page)
+    else:
+        page = 0
+    await _safe_edit(
+        callback,
+        f"单群权限：{display_name}\n\n"
+        "勾选后，操作人才能单独发送到该群。单群发送总开关关闭时，勾选权限会保留但不能发送。",
+        keyboards.operator_chat_permissions(user_id, chats, allowed_chat_ids, page),
+    )
+
+
+@router.callback_query(F.data.startswith("op:chat_toggle:"))
+async def op_chat_toggle(callback: CallbackQuery, bot: Bot, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    _, _, user_id_raw, page_raw, chat_id_raw = callback.data.split(":")
+    user_id = int(user_id_raw)
+    page = int(page_raw)
+    chat_id = int(chat_id_raw)
+    if not await _require_operator_management_access(callback, session, settings, role, user_id):
+        return
+    chats = await _grantable_direct_chats(
+        session=session,
+        bot=bot,
+        operator_user_id=callback.from_user.id,
+        role=role,
+    )
+    grantable_chat_ids = {chat.chat_id for chat in chats}
+    if chat_id not in grantable_chat_ids:
+        await _safe_edit(callback, "不能授权自己不可发送的群。", keyboards.main_menu(role))
+        return
+    allowed_chat_ids = await repo.list_operator_chat_ids(session, user_id)
+    enabled = chat_id not in allowed_chat_ids
+    ok = await repo.set_operator_chat_access(
+        session,
+        user_id=user_id,
+        chat_id=chat_id,
+        enabled=enabled,
+        changed_by=callback.from_user.id,
+    )
+    if not ok:
+        operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
+        await _safe_edit(callback, "操作人或群组不存在。", operators_markup)
+        return
+    user = await repo.get_operator(session, user_id)
+    allowed_chat_ids = await repo.list_operator_chat_ids(session, user_id)
+    allowed_chat_ids &= grantable_chat_ids
+    display_name = user.remark or user.first_name or str(user.user_id)
+    await _safe_edit(
+        callback,
+        f"单群权限：{display_name}\n\n"
+        "勾选后，操作人才能单独发送到该群。单群发送总开关关闭时，勾选权限会保留但不能发送。",
+        keyboards.operator_chat_permissions(user_id, chats, allowed_chat_ids, page),
+    )
+
+
 @router.callback_query(F.data.startswith("op:remark:"))
 async def op_remark(callback: CallbackQuery, session: AsyncSession, settings: Settings, state: FSMContext) -> None:
     role = await _role_or_reject(callback, session, settings)
@@ -1677,8 +2063,7 @@ async def op_edit_remark_value(
         operators_markup = await _operators_menu_markup(session, settings, message.from_user.id, role)
         await message.answer("操作人不存在。", reply_markup=operators_markup)
         return
-    group_count = await repo.count_operator_group_permissions(session, user_id)
-    await message.answer("备注已更新。", reply_markup=keyboards.operator_detail(user, group_count))
+    await message.answer("备注已更新。", reply_markup=await _operator_detail_markup(session, settings, user, role))
 
 
 @router.callback_query(F.data.startswith("op:delete:"))
@@ -1809,8 +2194,7 @@ async def op_disable(callback: CallbackQuery, session: AsyncSession, settings: S
         operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
         await _safe_edit(callback, "操作人不存在。", operators_markup)
         return
-    group_count = await repo.count_operator_group_permissions(session, user_id)
-    await _safe_edit(callback, "已禁用操作人。", keyboards.operator_detail(user, group_count))
+    await _safe_edit(callback, "已禁用操作人。", await _operator_detail_markup(session, settings, user, role))
 
 
 @router.callback_query(F.data.startswith("op:enable:"))
@@ -1827,8 +2211,7 @@ async def op_enable(callback: CallbackQuery, session: AsyncSession, settings: Se
         operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
         await _safe_edit(callback, "操作人不存在。", operators_markup)
         return
-    group_count = await repo.count_operator_group_permissions(session, user_id)
-    await _safe_edit(callback, "已启用操作人。", keyboards.operator_detail(user, group_count))
+    await _safe_edit(callback, "已启用操作人。", await _operator_detail_markup(session, settings, user, role))
 
 
 @router.callback_query(F.data == "send:choose")
@@ -1837,12 +2220,38 @@ async def send_choose(callback: CallbackQuery, session: AsyncSession, settings: 
     role = await _role_or_reject(callback, session, settings)
     if role is None:
         return
-    groups = await repo.list_accessible_delivery_groups(session, callback.from_user.id, role)
-    active_groups = [item for item in groups if item.chat_count > 0]
-    text = "选择要投递的分组。"
-    if not active_groups:
-        text = "暂无可发送的分组。请先创建分组并添加群组。"
+    active_groups = []
+    group_send_enabled = await repo.can_group_broadcast(session, callback.from_user.id, role)
+    if group_send_enabled:
+        groups = await repo.list_accessible_delivery_groups(session, callback.from_user.id, role)
+        active_groups = [item for item in groups if item.chat_count > 0]
+    text = "分组发送\n\n选择要投递的分组，或切换到指定群发送。"
+    if not group_send_enabled:
+        text = "分组发送权限已关闭。\n\n可以切换到指定群发送。"
+    elif not active_groups:
+        text = "暂无可发送的分组。请先创建分组并添加群组，或切换到指定群发送。"
     await _safe_edit(callback, text, keyboards.send_group_selector(active_groups))
+
+
+@router.callback_query(F.data.startswith("send:chat_choose"))
+async def send_chat_choose(callback: CallbackQuery, bot: Bot, session: AsyncSession, settings: Settings) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    parts = callback.data.split(":")
+    page = int(parts[2]) if len(parts) > 2 else 0
+    if not await _require_direct_send_enabled(callback, session, role):
+        return
+    chats = await repo.list_direct_send_chats(session, callback.from_user.id, role)
+    if chats:
+        max_page = max(0, (len(chats) - 1) // keyboards.PAGE_SIZE)
+        page = min(max(page, 0), max_page)
+    else:
+        page = 0
+    text = "指定群发送\n\n请选择目标群。"
+    if not chats:
+        text = "暂无可单独发送的群。请让宿主在权限管理里给你勾选单群权限。"
+    await _safe_edit(callback, text, keyboards.send_chat_selector(chats, page))
 
 
 @router.callback_query(F.data == "quick:choose")
@@ -1850,6 +2259,8 @@ async def quick_choose(callback: CallbackQuery, session: AsyncSession, settings:
     await state.clear()
     role = await _role_or_reject(callback, session, settings)
     if role is None:
+        return
+    if not await _require_group_broadcast_enabled(callback, session, role):
         return
     groups = await repo.list_accessible_delivery_groups(session, callback.from_user.id, role)
     active_groups = [item for item in groups if item.chat_count > 0]
@@ -1863,6 +2274,8 @@ async def quick_choose(callback: CallbackQuery, session: AsyncSession, settings:
 async def quick_group(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     role = await _role_or_reject(callback, session, settings)
     if role is None:
+        return
+    if not await _require_group_broadcast_enabled(callback, session, role):
         return
     group_id = int(callback.data.split(":")[2])
     if not await _require_group_access(callback, session, role, group_id):
@@ -1894,6 +2307,8 @@ async def quick_mode_start(
     role = await _role_or_reject(callback, session, settings)
     if role is None:
         return
+    if not await _require_group_broadcast_enabled(callback, session, role):
+        return
     _, mode, group_id_raw = callback.data.split(":")
     group_id = int(group_id_raw)
     if not await _require_group_access(callback, session, role, group_id):
@@ -1909,7 +2324,7 @@ async def quick_mode_start(
 
     keep_quick = mode == "keep"
     await state.set_state(SendForm.wait_message)
-    await state.update_data(group_id=group_id, auto_send=True, keep_quick=keep_quick)
+    await state.update_data(target_type="group", group_id=group_id, auto_send=True, keep_quick=keep_quick)
     if keep_quick:
         text = (
             f"已开启连续快捷发送：{group.name}\n"
@@ -1926,10 +2341,35 @@ async def quick_mode_start(
     await _safe_edit(callback, text, keyboards.cancel_keyboard())
 
 
+@router.callback_query(F.data.startswith("send:chat:"))
+async def send_chat(callback: CallbackQuery, session: AsyncSession, settings: Settings, state: FSMContext) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+    if not await _require_direct_send_enabled(callback, session, role):
+        return
+    chat_id = int(callback.data.split(":")[2])
+    if not await _require_chat_access(callback, session, role, chat_id):
+        return
+    chat = await repo.get_active_chat(session, chat_id)
+    if chat is None:
+        await _safe_edit(callback, "群组不存在或不可用。", keyboards.back_to_main())
+        return
+    await state.set_state(SendForm.wait_message)
+    await state.update_data(target_type="chat", chat_id=chat_id)
+    await _safe_edit(
+        callback,
+        f"目标群：{chat.title}\n\n请发送要投递的单条消息。",
+        keyboards.cancel_keyboard(),
+    )
+
+
 @router.callback_query(F.data.startswith("send:group:"))
 async def send_group(callback: CallbackQuery, session: AsyncSession, settings: Settings, state: FSMContext) -> None:
     role = await _role_or_reject(callback, session, settings)
     if role is None:
+        return
+    if not await _require_group_broadcast_enabled(callback, session, role):
         return
     group_id = int(callback.data.split(":")[2])
     if not await _require_group_access(callback, session, role, group_id):
@@ -1943,7 +2383,7 @@ async def send_group(callback: CallbackQuery, session: AsyncSession, settings: S
         await _safe_edit(callback, "这个分组暂无群组，不能发送。", keyboards.group_detail(group, 0))
         return
     await state.set_state(SendForm.wait_message)
-    await state.update_data(group_id=group_id)
+    await state.update_data(target_type="group", group_id=group_id)
     await _safe_edit(
         callback,
         f"目标分组：{group.name}\n目标群数量：{target_count}\n\n请发送要投递的单条消息。",
@@ -1963,7 +2403,40 @@ async def send_wait_message(
     if role is None:
         return
     data = await state.get_data()
+    if message.media_group_id:
+        await message.answer("第一版暂不合并媒体相册，请把内容作为单条消息发送。", reply_markup=keyboards.cancel_keyboard())
+        return
+    target_type = data.get("target_type", "group")
+    if target_type == "chat":
+        chat_id = int(data["chat_id"])
+        if not await _has_message_direct_send_enabled(message, session, role):
+            await state.clear()
+            return
+        if not await _has_message_chat_access(message, session, role, chat_id):
+            await state.clear()
+            return
+        chat = await repo.get_active_chat(session, chat_id)
+        if chat is None:
+            await state.clear()
+            await message.answer("群组不存在或不可用。", reply_markup=keyboards.back_to_main())
+            return
+        await state.set_state(SendForm.confirm)
+        await state.update_data(
+            target_type="chat",
+            chat_id=chat_id,
+            source_chat_id=message.chat.id,
+            source_message_id=message.message_id,
+        )
+        await message.answer(
+            f"确认发送到群「{chat.title}」？",
+            reply_markup=keyboards.confirm_direct_send(chat_id),
+        )
+        return
+
     group_id = int(data["group_id"])
+    if not await _has_message_group_broadcast_enabled(message, session, role):
+        await state.clear()
+        return
     if not await _has_message_group_access(message, session, role, group_id):
         await state.clear()
         return
@@ -1976,9 +2449,6 @@ async def send_wait_message(
     if target_count == 0:
         await state.clear()
         await message.answer("这个分组暂无群组，不能发送。", reply_markup=keyboards.group_detail(group, 0))
-        return
-    if message.media_group_id:
-        await message.answer("第一版暂不合并媒体相册，请把内容作为单条消息发送。", reply_markup=keyboards.cancel_keyboard())
         return
     if data.get("auto_send"):
         keep_quick = bool(data.get("keep_quick"))
@@ -1994,7 +2464,7 @@ async def send_wait_message(
         )
         if keep_quick:
             await state.set_state(SendForm.wait_message)
-            await state.update_data(group_id=group_id, auto_send=True, keep_quick=True)
+            await state.update_data(target_type="group", group_id=group_id, auto_send=True, keep_quick=True)
             await message.answer(
                 report + "\n\n快捷发送模式仍在开启，继续发消息会继续投递。点击「取消 / 停止」退出。",
                 reply_markup=keyboards.cancel_keyboard(),
@@ -2005,6 +2475,7 @@ async def send_wait_message(
         return
     await state.set_state(SendForm.confirm)
     await state.update_data(
+        target_type="group",
         group_id=group_id,
         source_chat_id=message.chat.id,
         source_message_id=message.message_id,
@@ -2045,6 +2516,9 @@ async def send_confirm(
     if int(data.get("group_id", 0)) != group_id:
         await _safe_edit(callback, "发送状态不匹配，请重新选择分组。", keyboards.back_to_main())
         return
+    if not await _require_group_broadcast_enabled(callback, session, role):
+        await state.clear()
+        return
     if not await _require_group_access(callback, session, role, group_id):
         await state.clear()
         return
@@ -2065,6 +2539,57 @@ async def send_confirm(
         settings=settings,
         operator_user_id=callback.from_user.id,
         group_id=group_id,
+        source_chat_id=source_chat_id,
+        source_message_id=source_message_id,
+    )
+    await state.clear()
+
+    await callback.message.answer(report, reply_markup=keyboards.main_menu(role))
+
+
+@router.callback_query(F.data.startswith("send:confirm_chat:"))
+async def send_confirm_chat(
+    callback: CallbackQuery,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(callback, session, settings)
+    if role is None:
+        return
+
+    data = await state.get_data()
+    if not data:
+        await _safe_edit(callback, "发送状态已过期，请重新选择目标群。", keyboards.back_to_main())
+        return
+
+    chat_id = int(callback.data.split(":")[2])
+    if int(data.get("chat_id", 0)) != chat_id:
+        await _safe_edit(callback, "发送状态不匹配，请重新选择目标群。", keyboards.back_to_main())
+        return
+    if not await _require_direct_send_enabled(callback, session, role):
+        await state.clear()
+        return
+    if not await _require_chat_access(callback, session, role, chat_id):
+        await state.clear()
+        return
+
+    source_chat_id = int(data["source_chat_id"])
+    source_message_id = int(data["source_message_id"])
+    chat = await repo.get_active_chat(session, chat_id)
+    if chat is None:
+        await state.clear()
+        await _safe_edit(callback, "群组不存在或不可用，无法发送。", keyboards.back_to_main())
+        return
+
+    await _safe_edit(callback, f"开始发送到「{chat.title}」。")
+    report, _ = await _deliver_message_to_chat(
+        bot=bot,
+        session=session,
+        settings=settings,
+        operator_user_id=callback.from_user.id,
+        target_chat_id=chat_id,
         source_chat_id=source_chat_id,
         source_message_id=source_message_id,
     )

@@ -74,6 +74,25 @@ class OperatorGroupPermission(TimestampMixin, Base):
     group: Mapped[DeliveryGroup] = relationship(back_populates="operator_permissions")
 
 
+class OperatorFeaturePermission(TimestampMixin, Base):
+    __tablename__ = "operator_feature_permissions"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("authorized_users.user_id"), primary_key=True)
+    allow_group_broadcast: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    allow_direct_send: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    allow_manage_operators: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class OperatorChatPermission(TimestampMixin, Base):
+    __tablename__ = "operator_chat_permissions"
+    __table_args__ = (UniqueConstraint("user_id", "chat_id", name="uq_operator_chat_permission"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("authorized_users.user_id"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(ForeignKey("tg_chats.chat_id"), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class DeliveryGroupChat(TimestampMixin, Base):
     __tablename__ = "delivery_group_chats"
     __table_args__ = (UniqueConstraint("delivery_group_id", "chat_id", name="uq_group_chat"),)
@@ -109,6 +128,17 @@ class SendJobTarget(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     sent_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DirectSendMessage(TimestampMixin, Base):
+    __tablename__ = "direct_send_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    operator_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    sent_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class AuditLog(TimestampMixin, Base):
