@@ -445,10 +445,8 @@ async def _edit_replied_original_message(
                 message_id=message.reply_to_message.message_id,
                 media=InputMediaPhoto(
                     media=replacement.photo_file_id,
-                    caption=replacement.text if replacement.text_is_configured else message.reply_to_message.caption,
-                    caption_entities=None
-                    if replacement.text_is_configured
-                    else message.reply_to_message.caption_entities,
+                    caption=message.reply_to_message.caption,
+                    caption_entities=message.reply_to_message.caption_entities,
                 ),
             )
             return True
