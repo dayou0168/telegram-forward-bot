@@ -24,7 +24,7 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.8` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.8`。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.9` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.9`。
 - `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
@@ -66,7 +66,7 @@
 - 分组发送和指定群发送都支持确认发送、一次性快捷发送、连续快捷发送。
 - 支持在发送入口切换“分组发送”和“指定群发送”；指定群发送只投递到单个已授权群。
 - 操作人通过机器人发送到群内的内容会同步通知宿主和开启“看发送”的操作人；群内回复通知会发给宿主、原发送操作人和开启“看回复”的操作人。
-- 操作人私聊自动清空由宿主在单个操作人详情里单独设置，按北京时间每天执行。清空范围只包括开启后该操作人与机器人私聊中已记录的消息 ID，宿主与机器人的私聊记录不会被删除；过旧或 Telegram 不允许删除的消息会跳过。
+- 操作人私聊自动清空由宿主在单个操作人详情里单独设置，按北京时间每天执行。清空范围只包括开启后该操作人与机器人私聊中已记录的消息 ID，宿主与机器人的私聊记录不会被删除；过旧或 Telegram 不允许删除的消息会跳过。数据库只保存待清空队列，正常到点后会清掉，超过 3 天的待删记录会自动丢弃。
 - Telegram 电脑版私聊菜单里只保留 `/start`、`/menu`、`/id`；群聊菜单里保留 `/register`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
 - 中文快捷指令仍支持：
   - `发送到 分组名`
@@ -78,7 +78,7 @@
 
 当群成员回复机器人投递到群内的那条消息时，机器人会私聊通知宿主和当时发送的操作人。
 
-- 默认会尝试编辑群里“被回复的那条机器人投递消息”，隐藏原投递内容，不删除群成员发出的回复消息。宿主可以在机器人主菜单的“机器人配置”里分别设置固定替换文字和固定替换图片；文字原消息会替换成固定文字，图片原消息会替换成固定图片并保留原 caption；图片+caption 若没有设置固定图片但设置了固定文字，则只替换 caption。可用 `REPLY_AUTO_EDIT_ORIGINAL=false` 关闭；`REPLY_ORIGINAL_REPLACEMENT_TEXT` 是默认替换文案；旧变量 `REPLY_AUTO_DELETE_ORIGINAL=false` 仍兼容。
+- 机器人会在有对应固定内容时尝试编辑群里“被回复的那条机器人投递消息”，不删除群成员发出的回复消息。宿主可以在机器人主菜单的“机器人配置”里分别设置固定替换文字和固定替换图片；只有设置固定文字后，文字原消息才会替换成固定文字；图片原消息会替换成固定图片并保留原 caption；图片+caption 若没有设置固定图片但设置了固定文字，则只替换 caption。可用 `REPLY_AUTO_EDIT_ORIGINAL=false` 关闭；旧变量 `REPLY_AUTO_DELETE_ORIGINAL=false` 仍兼容。
 - 纯文字回复会合并进一条通知，不再额外复制原消息。
 - 通知只显示可点击的群名、可点击的发送人和内容预览，不显示任务号或发送人 UID。
 - 图片、视频、文件、语音等媒体回复会优先复制原媒体，并把同样的简洁通知放入媒体说明，按钮也挂在同一条媒体消息下面。

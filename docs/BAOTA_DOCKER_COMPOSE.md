@@ -1,4 +1,4 @@
-# 宝塔 Docker Compose 镜像部署
+﻿# 宝塔 Docker Compose 镜像部署
 
 这个文档用于在宝塔面板的 Docker Compose 容器编排里部署机器人。
 
@@ -9,7 +9,7 @@
 项目使用 GitHub Actions 自动构建 Docker 镜像，并推送到 GitHub Container Registry：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:0.2.8
+ghcr.io/dayou0168/telegram-forward-bot:0.2.9
 ```
 
 宝塔模板 `compose.baota.yaml` 会直接拉这个镜像运行：
@@ -34,7 +34,7 @@ Actions -> Docker Image
 工作流成功后，镜像地址是：
 
 ```text
-ghcr.io/dayou0168/telegram-forward-bot:0.2.8
+ghcr.io/dayou0168/telegram-forward-bot:0.2.9
 ```
 
 如果宝塔拉镜像时报 `unauthorized` 或 `denied`，说明 GHCR 包还不是公开可拉取。进入 GitHub：
@@ -64,7 +64,7 @@ name: tg-forward-notice-bot
 
 services:
   tg-forward-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.8
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.9
     container_name: tg-forward-notice-bot
     restart: unless-stopped
     environment:
@@ -73,7 +73,6 @@ services:
       DATABASE_URL: "sqlite+aiosqlite:///./data/notice-bot.db"
       UNAUTHORIZED_REPLY: "true"
       REPLY_AUTO_EDIT_ORIGINAL: "true"
-      REPLY_ORIGINAL_REPLACEMENT_TEXT: "已收到回复，原投递内容已隐藏。"
       SEND_DELAY_SECONDS: "0.08"
     volumes:
       - tg_forward_notice_data:/app/data
@@ -147,7 +146,7 @@ name: tg-forward-customer-bot
 
 services:
   tg-forward-customer-bot:
-    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.8
+    image: ghcr.io/dayou0168/telegram-forward-bot:0.2.9
     container_name: tg-forward-customer-bot
     restart: unless-stopped
     environment:
@@ -156,7 +155,6 @@ services:
       DATABASE_URL: "sqlite+aiosqlite:///./data/customer-bot.db"
       UNAUTHORIZED_REPLY: "true"
       REPLY_AUTO_EDIT_ORIGINAL: "true"
-      REPLY_ORIGINAL_REPLACEMENT_TEXT: "已收到回复，原投递内容已隐藏。"
       SEND_DELAY_SECONDS: "0.08"
     volumes:
       - tg_forward_customer_data:/app/data
@@ -179,7 +177,7 @@ volumes:
 如果宝塔没有自动拉取新镜像，可以先删除旧镜像：
 
 ```bash
-docker rmi ghcr.io/dayou0168/telegram-forward-bot:0.2.8
+docker rmi ghcr.io/dayou0168/telegram-forward-bot:0.2.9
 ```
 
 然后再在宝塔里重建 Compose 项目。

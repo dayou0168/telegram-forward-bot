@@ -36,7 +36,6 @@ class Settings:
     database_url: str
     unauthorized_reply: bool
     reply_auto_edit_original: bool
-    reply_original_replacement_text: str
     send_delay_seconds: float
 
 
@@ -69,10 +68,6 @@ def load_settings() -> Settings:
             os.getenv("REPLY_AUTO_EDIT_ORIGINAL", os.getenv("REPLY_AUTO_DELETE_ORIGINAL")),
             True,
         ),
-        reply_original_replacement_text=os.getenv(
-            "REPLY_ORIGINAL_REPLACEMENT_TEXT",
-            "已收到回复，原投递内容已隐藏。",
-        ).strip() or "已收到回复，原投递内容已隐藏。",
         send_delay_seconds=max(0.0, send_delay_seconds),
     )
 

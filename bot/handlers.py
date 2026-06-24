@@ -457,10 +457,7 @@ async def _edit_replied_original_message(
     settings: Settings,
     message: Message,
 ) -> bool:
-    replacement = await repo.get_reply_original_replacement(
-        session,
-        settings.reply_original_replacement_text,
-    )
+    replacement = await repo.get_reply_original_replacement(session)
     if message.reply_to_message.photo and replacement.photo_file_id:
         try:
             await bot.edit_message_media(
@@ -486,6 +483,9 @@ async def _edit_replied_original_message(
         except TelegramAPIError:
             return False
     if message.reply_to_message.photo:
+        return False
+
+    if not replacement.text_is_configured:
         return False
 
     try:
@@ -1328,15 +1328,13 @@ async def config_reply_original(callback: CallbackQuery, session: AsyncSession, 
     role = await _role_or_reject(callback, session, settings, owner_required=True)
     if role is None:
         return
-    replacement = await repo.get_reply_original_replacement(
-        session,
-        settings.reply_original_replacement_text,
-    )
+    replacement = await repo.get_reply_original_replacement(session)
+    text_status = replacement.text if replacement.text_is_configured else "未设置"
     photo_status = "已设置" if replacement.photo_file_id else "未设置"
     current = (
-        f"固定文字：{replacement.text}\n"
+        f"固定文字：{text_status}\n"
         f"固定图片：{photo_status}\n\n"
-        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片并保留原 caption。没有固定图片但设置了固定文字时，才会只替换 caption。"
+        "只有设置固定文字后，文字原消息才会被改成固定文字；图片会替换成固定图片并保留原 caption。没有固定图片但设置了固定文字时，才会只替换 caption。"
     )
     await _safe_edit(
         callback,
@@ -1416,7 +1414,7 @@ async def config_reply_original_photo_value(
     if not message.photo:
         await message.answer("请发送一张图片。", reply_markup=keyboards.cancel_keyboard())
         return
-    caption = (message.caption or settings.reply_original_replacement_text).strip()
+    caption = (message.caption or "").strip()
     if len(caption) > 1024:
         await message.answer("图片说明不能超过 1024 个字符，请重新发送。", reply_markup=keyboards.cancel_keyboard())
         return

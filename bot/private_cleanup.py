@@ -109,7 +109,9 @@ async def run_private_chat_cleanup_once(
     now_local = datetime.now(BEIJING_TZ)
     run_date = now_local.date().isoformat()
     async with session_factory() as session:
+        await repo.purge_stale_private_chat_messages(session)
         targets = await repo.list_due_operator_private_cleanup_targets(session, now_local=now_local)
+        await session.commit()
 
     for target in targets:
         try:

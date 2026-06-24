@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,7 @@ class ReplyOriginalReplacement:
 
 REPLY_REPLACEMENT_TEXT_KEY = "reply_original_replacement_text"
 REPLY_REPLACEMENT_PHOTO_KEY = "reply_original_replacement_photo_file_id"
+PRIVATE_CHAT_RECORD_RETENTION_DAYS = 3
 
 
 def time_to_minutes(value: str) -> int:
@@ -103,12 +104,9 @@ async def set_bot_setting(session: AsyncSession, key: str, value: str) -> None:
         setting.value = value
 
 
-async def get_reply_original_replacement(
-    session: AsyncSession,
-    default_text: str,
-) -> ReplyOriginalReplacement:
+async def get_reply_original_replacement(session: AsyncSession) -> ReplyOriginalReplacement:
     configured_text = await get_bot_setting(session, REPLY_REPLACEMENT_TEXT_KEY)
-    text = configured_text or default_text
+    text = configured_text or ""
     photo_file_id = await get_bot_setting(session, REPLY_REPLACEMENT_PHOTO_KEY)
     return ReplyOriginalReplacement(
         text=text,
@@ -339,6 +337,7 @@ async def record_private_chat_message(
     message_id: int,
     direction: str,
 ) -> None:
+    await purge_stale_private_chat_messages(session)
     existing = await session.execute(
         select(PrivateChatMessage.id).where(
             PrivateChatMessage.chat_id == chat_id,
@@ -355,6 +354,12 @@ async def record_private_chat_message(
             direction=direction,
         )
     )
+
+
+async def purge_stale_private_chat_messages(session: AsyncSession) -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=PRIVATE_CHAT_RECORD_RETENTION_DAYS)
+    result = await session.execute(delete(PrivateChatMessage).where(PrivateChatMessage.created_at < cutoff))
+    return int(result.rowcount or 0)
 
 
 async def list_private_chat_messages(session: AsyncSession, operator_user_id: int) -> list[PrivateChatMessage]:
