@@ -83,6 +83,9 @@ class OperatorFeaturePermission(TimestampMixin, Base):
     allow_manage_operators: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     receive_sent_notifications: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     receive_reply_notifications: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    private_cleanup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    private_cleanup_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    private_cleanup_last_run_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class OperatorChatPermission(TimestampMixin, Base):
@@ -141,6 +144,17 @@ class DirectSendMessage(TimestampMixin, Base):
     source_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     source_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
     sent_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PrivateChatMessage(TimestampMixin, Base):
+    __tablename__ = "private_chat_messages"
+    __table_args__ = (UniqueConstraint("chat_id", "message_id", name="uq_private_chat_message"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    operator_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
 
 
 class BotSetting(TimestampMixin, Base):

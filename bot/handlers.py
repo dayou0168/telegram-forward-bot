@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+from datetime import datetime
 from typing import Any
 
 from aiogram import Bot, F, Router
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import Settings
 from bot import keyboards
+from bot.private_cleanup import BEIJING_TZ
 from bot import repositories as repo
 from bot.states import ConfigForm, GroupForm, OperatorForm, ReplyForm, SendForm
 
@@ -241,6 +243,9 @@ async def _operator_detail_markup(
         receive_sent_notifications=flags.receive_sent_notifications,
         receive_reply_notifications=flags.receive_reply_notifications,
         can_toggle_visibility=viewer_role == "owner",
+        private_cleanup_enabled=flags.private_cleanup_enabled,
+        private_cleanup_time=flags.private_cleanup_time,
+        can_manage_cleanup=viewer_role == "owner",
     )
 
 
@@ -256,6 +261,24 @@ async def _grantable_direct_chats(
 
 def _normalize_group_name(raw: str) -> str:
     return " ".join(raw.strip().split())
+
+
+def _parse_cleanup_time(raw: str) -> str | None:
+    value = raw.strip().replace("：", ":").replace("。", ".")
+    separator = ":" if ":" in value else "." if "." in value else None
+    if separator is None:
+        return None
+    parts = value.split(separator)
+    if len(parts) != 2:
+        return None
+    try:
+        hour = int(parts[0].strip())
+        minute = int(parts[1].strip())
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _chat_status_from_member_update(update: ChatMemberUpdated) -> str:
@@ -1313,7 +1336,7 @@ async def config_reply_original(callback: CallbackQuery, session: AsyncSession, 
     current = (
         f"固定文字：{replacement.text}\n"
         f"固定图片：{photo_status}\n\n"
-        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片。只有设置过固定文字时，才会同时替换 caption。"
+        "原消息是文字时会改成固定文字；原消息是图片时会替换成固定图片并保留原 caption。没有固定图片但设置了固定文字时，才会只替换 caption。"
     )
     await _safe_edit(
         callback,
@@ -1375,7 +1398,7 @@ async def config_reply_original_photo(
     await state.set_state(ConfigForm.replacement_photo)
     await _safe_edit(
         callback,
-        "请发送一张固定替换图片。\n\n有人回复图片类投递消息后，机器人会把原消息替换成这张图片；只有设置过固定文字时，才会同时替换文字说明。",
+        "请发送一张固定替换图片。\n\n有人回复图片类投递消息后，机器人会把原消息替换成这张图片，并保留原来的文字说明。",
         keyboards.cancel_keyboard(),
     )
 
@@ -1973,6 +1996,10 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
     can_toggle_manage_operators = role == "owner" and user.created_by in settings.owner_user_ids
     display_name = user.remark or user.first_name or "未备注用户"
     username = f"@{user.username}" if user.username else "无 username"
+    cleanup_status = "关闭"
+    if flags.private_cleanup_enabled and flags.private_cleanup_time:
+        cleanup_status = f"每天 {flags.private_cleanup_time} 北京时间"
+    cleanup_line = f"\n私聊清空：{cleanup_status}" if role == "owner" else ""
     await _safe_edit(
         callback,
         f"操作人详情\n\n"
@@ -1986,7 +2013,8 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
         f"可见发送：{'开启' if flags.receive_sent_notifications else '关闭'}\n"
         f"可见回复：{'开启' if flags.receive_reply_notifications else '关闭'}\n"
         f"已授权分组：{group_count}\n"
-        f"已授权单群：{chat_count}",
+        f"已授权单群：{chat_count}"
+        f"{cleanup_line}",
         keyboards.operator_detail(
             user,
             group_count,
@@ -1998,6 +2026,9 @@ async def op_view(callback: CallbackQuery, session: AsyncSession, settings: Sett
             receive_sent_notifications=flags.receive_sent_notifications,
             receive_reply_notifications=flags.receive_reply_notifications,
             can_toggle_visibility=role == "owner",
+            private_cleanup_enabled=flags.private_cleanup_enabled,
+            private_cleanup_time=flags.private_cleanup_time,
+            can_manage_cleanup=role == "owner",
         ),
     )
 
@@ -2110,6 +2141,88 @@ async def op_feature_toggle(callback: CallbackQuery, session: AsyncSession, sett
         return
     user = await repo.get_operator(session, user_id)
     await _safe_edit(callback, "权限开关已更新。", await _operator_detail_markup(session, settings, user, role))
+
+
+@router.callback_query(F.data.startswith("op:cleanup:"))
+async def op_cleanup_time(callback: CallbackQuery, session: AsyncSession, settings: Settings, state: FSMContext) -> None:
+    role = await _role_or_reject(callback, session, settings, owner_required=True)
+    if role is None:
+        return
+    user_id = int(callback.data.split(":")[2])
+    user = await repo.get_operator(session, user_id)
+    if user is None:
+        operators_markup = await _operators_menu_markup(session, settings, callback.from_user.id, role)
+        await _safe_edit(callback, "操作人不存在。", operators_markup)
+        return
+
+    flags = await repo.get_operator_feature_flags(session, user_id)
+    current = f"每天 {flags.private_cleanup_time} 北京时间" if flags.private_cleanup_enabled and flags.private_cleanup_time else "关闭"
+    await state.set_state(OperatorForm.cleanup_time)
+    await state.update_data(operator_user_id=user_id)
+    await _safe_edit(
+        callback,
+        f"私聊自动清空\n\n当前：{current}\n\n"
+        "请发送北京时间，格式如 00:00 或 0.00。\n"
+        "发送「关闭」可停用这个操作人的自动清空。",
+        keyboards.cancel_keyboard(),
+    )
+
+
+@router.message(OperatorForm.cleanup_time)
+async def op_cleanup_time_value(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+    state: FSMContext,
+) -> None:
+    role = await _role_or_reject(message, session, settings, owner_required=True)
+    if role is None:
+        return
+    data = await state.get_data()
+    user_id = int(data["operator_user_id"])
+    user = await repo.get_operator(session, user_id)
+    if user is None:
+        await state.clear()
+        operators_markup = await _operators_menu_markup(session, settings, message.from_user.id, role)
+        await message.answer("操作人不存在。", reply_markup=operators_markup)
+        return
+
+    raw = (message.text or "").strip()
+    now_local = datetime.now(BEIJING_TZ)
+    if raw in {"关闭", "关", "停用", "取消清空", "off", "OFF"}:
+        ok = await repo.set_operator_private_cleanup(
+            session,
+            user_id=user_id,
+            enabled=False,
+            cleanup_time=None,
+            changed_by=message.from_user.id,
+            now_local=now_local,
+        )
+        await state.clear()
+        await message.answer(
+            "已关闭这个操作人的私聊自动清空。" if ok else "操作人不存在。",
+            reply_markup=await _operator_detail_markup(session, settings, user, role),
+        )
+        return
+
+    cleanup_time = _parse_cleanup_time(raw)
+    if cleanup_time is None:
+        await message.answer("时间格式不正确，请发送 00:00 或 0.00。", reply_markup=keyboards.cancel_keyboard())
+        return
+
+    ok = await repo.set_operator_private_cleanup(
+        session,
+        user_id=user_id,
+        enabled=True,
+        cleanup_time=cleanup_time,
+        changed_by=message.from_user.id,
+        now_local=now_local,
+    )
+    await state.clear()
+    await message.answer(
+        f"已设置这个操作人每天 {cleanup_time} 北京时间自动清空私聊记录。" if ok else "操作人不存在。",
+        reply_markup=await _operator_detail_markup(session, settings, user, role),
+    )
 
 
 @router.callback_query(F.data.startswith("op:chats:"))

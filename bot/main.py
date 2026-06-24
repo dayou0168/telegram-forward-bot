@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -10,6 +11,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandSc
 from bot.config import load_settings
 from bot.db import DbSessionMiddleware, init_db, make_session_factory
 from bot.handlers import router
+from bot.private_cleanup import PrivateChatCleanupRequestMiddleware, private_chat_cleanup_loop
 from bot.repositories import bootstrap_legacy_operator_group_permissions, ensure_owner_users
 
 
@@ -29,6 +31,7 @@ async def main() -> None:
         await session.commit()
 
     bot = Bot(token=settings.bot_token)
+    bot.session.middleware(PrivateChatCleanupRequestMiddleware(session_factory, settings))
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.update.middleware(DbSessionMiddleware(session_factory, settings))
     dispatcher.include_router(router)
@@ -45,7 +48,13 @@ async def main() -> None:
     await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
     await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
     await bot.delete_webhook(drop_pending_updates=True)
-    await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
+    cleanup_task = asyncio.create_task(private_chat_cleanup_loop(bot, session_factory))
+    try:
+        await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
 
 
 if __name__ == "__main__":

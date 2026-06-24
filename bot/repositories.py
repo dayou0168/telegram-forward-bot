@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,7 @@ from bot.models import (
     OperatorChatPermission,
     OperatorFeaturePermission,
     OperatorGroupPermission,
+    PrivateChatMessage,
     SendJob,
     SendJobTarget,
     TgChat,
@@ -42,6 +44,14 @@ class OperatorFeatureFlags:
     allow_manage_operators: bool
     receive_sent_notifications: bool
     receive_reply_notifications: bool
+    private_cleanup_enabled: bool
+    private_cleanup_time: str | None
+
+
+@dataclass(frozen=True)
+class OperatorPrivateCleanupTarget:
+    user_id: int
+    cleanup_time: str
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,11 @@ class ReplyOriginalReplacement:
 
 REPLY_REPLACEMENT_TEXT_KEY = "reply_original_replacement_text"
 REPLY_REPLACEMENT_PHOTO_KEY = "reply_original_replacement_photo_file_id"
+
+
+def time_to_minutes(value: str) -> int:
+    hours_raw, minutes_raw = value.split(":", 1)
+    return int(hours_raw) * 60 + int(minutes_raw)
 
 
 async def ensure_owner_users(session: AsyncSession, owner_user_ids: frozenset[int]) -> None:
@@ -303,6 +318,7 @@ async def delete_operator(session: AsyncSession, user_id: int, deleted_by: int) 
     )
     await session.execute(delete(OperatorChatPermission).where(OperatorChatPermission.user_id == user_id))
     await session.execute(delete(OperatorFeaturePermission).where(OperatorFeaturePermission.user_id == user_id))
+    await session.execute(delete(PrivateChatMessage).where(PrivateChatMessage.operator_user_id == user_id))
     await add_audit_log(
         session,
         deleted_by,
@@ -313,6 +329,70 @@ async def delete_operator(session: AsyncSession, user_id: int, deleted_by: int) 
     )
     await session.delete(user)
     return True
+
+
+async def record_private_chat_message(
+    session: AsyncSession,
+    *,
+    operator_user_id: int,
+    chat_id: int,
+    message_id: int,
+    direction: str,
+) -> None:
+    existing = await session.execute(
+        select(PrivateChatMessage.id).where(
+            PrivateChatMessage.chat_id == chat_id,
+            PrivateChatMessage.message_id == message_id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+    session.add(
+        PrivateChatMessage(
+            operator_user_id=operator_user_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            direction=direction,
+        )
+    )
+
+
+async def list_private_chat_messages(session: AsyncSession, operator_user_id: int) -> list[PrivateChatMessage]:
+    result = await session.execute(
+        select(PrivateChatMessage)
+        .where(PrivateChatMessage.operator_user_id == operator_user_id)
+        .order_by(PrivateChatMessage.message_id)
+    )
+    return list(result.scalars().all())
+
+
+async def finish_private_chat_cleanup(
+    session: AsyncSession,
+    *,
+    operator_user_id: int,
+    run_date: str,
+    max_record_id: int | None,
+    attempted_count: int,
+    deleted_count: int,
+    changed_by: int,
+) -> None:
+    if max_record_id is not None:
+        delete_stmt = delete(PrivateChatMessage).where(PrivateChatMessage.operator_user_id == operator_user_id)
+        delete_stmt = delete_stmt.where(PrivateChatMessage.id <= max_record_id)
+        await session.execute(delete_stmt)
+
+    permission = await session.get(OperatorFeaturePermission, operator_user_id)
+    if permission is not None:
+        permission.private_cleanup_last_run_date = run_date
+
+    await add_audit_log(
+        session,
+        changed_by,
+        "run_operator_private_cleanup",
+        "operator_feature_permission",
+        str(operator_user_id),
+        f"attempted={attempted_count}, deleted={deleted_count}",
+    )
 
 
 async def list_operator_group_ids(session: AsyncSession, user_id: int) -> set[int]:
@@ -344,6 +424,8 @@ async def get_operator_feature_flags(session: AsyncSession, user_id: int) -> Ope
             allow_manage_operators=True,
             receive_sent_notifications=False,
             receive_reply_notifications=False,
+            private_cleanup_enabled=False,
+            private_cleanup_time=None,
         )
     return OperatorFeatureFlags(
         allow_group_broadcast=permission.allow_group_broadcast,
@@ -351,6 +433,8 @@ async def get_operator_feature_flags(session: AsyncSession, user_id: int) -> Ope
         allow_manage_operators=permission.allow_manage_operators,
         receive_sent_notifications=permission.receive_sent_notifications,
         receive_reply_notifications=permission.receive_reply_notifications,
+        private_cleanup_enabled=permission.private_cleanup_enabled,
+        private_cleanup_time=permission.private_cleanup_time,
     )
 
 
@@ -392,6 +476,81 @@ async def set_operator_feature_flag(
         f"enabled={enabled}",
     )
     return True
+
+
+async def set_operator_private_cleanup(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    enabled: bool,
+    cleanup_time: str | None,
+    changed_by: int,
+    now_local: datetime,
+) -> bool:
+    user = await get_operator(session, user_id)
+    if user is None:
+        return False
+
+    permission = await session.get(OperatorFeaturePermission, user_id)
+    if permission is None:
+        permission = OperatorFeaturePermission(user_id=user_id)
+        session.add(permission)
+        await session.flush()
+
+    permission.private_cleanup_enabled = enabled
+    permission.private_cleanup_time = cleanup_time if enabled else None
+    if enabled and cleanup_time is not None and time_to_minutes(cleanup_time) <= now_local.hour * 60 + now_local.minute:
+        permission.private_cleanup_last_run_date = now_local.date().isoformat()
+    elif enabled:
+        permission.private_cleanup_last_run_date = None
+    else:
+        permission.private_cleanup_last_run_date = None
+        await session.execute(delete(PrivateChatMessage).where(PrivateChatMessage.operator_user_id == user_id))
+
+    await add_audit_log(
+        session,
+        changed_by,
+        "set_operator_private_cleanup",
+        "operator_feature_permission",
+        str(user_id),
+        f"enabled={enabled}, time={cleanup_time or ''}",
+    )
+    return True
+
+
+async def list_due_operator_private_cleanup_targets(
+    session: AsyncSession,
+    *,
+    now_local: datetime,
+) -> list[OperatorPrivateCleanupTarget]:
+    today = now_local.date().isoformat()
+    now_minutes = now_local.hour * 60 + now_local.minute
+    result = await session.execute(
+        select(AuthorizedUser.user_id, OperatorFeaturePermission.private_cleanup_time)
+        .join(OperatorFeaturePermission, OperatorFeaturePermission.user_id == AuthorizedUser.user_id)
+        .where(
+            AuthorizedUser.role == "operator",
+            AuthorizedUser.status == "active",
+            OperatorFeaturePermission.private_cleanup_enabled.is_(True),
+            OperatorFeaturePermission.private_cleanup_time.is_not(None),
+        )
+        .order_by(AuthorizedUser.user_id)
+    )
+
+    targets: list[OperatorPrivateCleanupTarget] = []
+    for user_id, cleanup_time in result.all():
+        if not cleanup_time:
+            continue
+        permission = await session.get(OperatorFeaturePermission, int(user_id))
+        if permission is None or permission.private_cleanup_last_run_date == today:
+            continue
+        try:
+            cleanup_minutes = time_to_minutes(cleanup_time)
+        except (TypeError, ValueError):
+            continue
+        if cleanup_minutes <= now_minutes:
+            targets.append(OperatorPrivateCleanupTarget(user_id=int(user_id), cleanup_time=cleanup_time))
+    return targets
 
 
 async def can_group_broadcast(session: AsyncSession, user_id: int, role: str) -> bool:

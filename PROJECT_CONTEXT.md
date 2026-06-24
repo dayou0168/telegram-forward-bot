@@ -24,7 +24,7 @@
 - `bot/states.py`：FSM 状态。
 - `bot/config.py`：环境变量配置。
 - `compose.yaml`：标准 Docker Compose 部署入口。
-- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.7` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.7`。
+- `.github/workflows/docker-image.yml`：GitHub Actions 自动构建 Docker 镜像并推送到 GHCR，`main` 会推送 `latest`，版本标签 `v0.2.8` 会推送 `ghcr.io/dayou0168/telegram-forward-bot:0.2.8`。
 - `compose.baota.yaml`：宝塔面板 Docker Compose 容器编排模板；直接使用 GHCR 镜像，不依赖服务器本地源码、Dockerfile 或 `deploy/envs/*.env`；使用内联环境变量和固定 Docker 命名卷 `tg_forward_notice_data`，顶部内置 `name: tg-forward-notice-bot` 避免宝塔项目名为空。
 - `docker-compose.yml`：保留给旧命令习惯的兼容 Compose 文件。
 - `docs/BAOTA_DOCKER_COMPOSE.md`：宝塔面板容器编排部署说明。
@@ -48,6 +48,7 @@
 - 每个操作人有独立的“分组群发”和“单群发送”开关。
 - 宿主直属操作人有独立的“设置下级”开关；只有宿主可开启或关闭。下级操作人不能继续创建操作人。
 - 宿主可以给操作人单独开启“看发送”和“看回复”，允许其看到其他操作人通过机器人发送的内容和群内回复通知。
+- 宿主可以给每个操作人单独设置“私聊自动清空”时间，时间按北京时间执行；清空只删除该操作人与机器人的私聊窗口中已记录且 Telegram 允许删除的消息，不删除宿主与机器人的聊天记录。
 - 宿主可以给操作人单独勾选可单群发送的群；单群发送权限不从分组权限自动推导。
 - 操作人本人不需要加入目标群；只要机器人在群内且操作人有对应权限，就可以通过机器人发送和快速回复。
 
@@ -65,6 +66,7 @@
 - 分组发送和指定群发送都支持确认发送、一次性快捷发送、连续快捷发送。
 - 支持在发送入口切换“分组发送”和“指定群发送”；指定群发送只投递到单个已授权群。
 - 操作人通过机器人发送到群内的内容会同步通知宿主和开启“看发送”的操作人；群内回复通知会发给宿主、原发送操作人和开启“看回复”的操作人。
+- 操作人私聊自动清空由宿主在单个操作人详情里单独设置，按北京时间每天执行。清空范围只包括开启后该操作人与机器人私聊中已记录的消息 ID，宿主与机器人的私聊记录不会被删除；过旧或 Telegram 不允许删除的消息会跳过。
 - Telegram 电脑版私聊菜单里只保留 `/start`、`/menu`、`/id`；群聊菜单里保留 `/register`，避免 `/quick`、`/to` 这类命令点开后还要补参数。
 - 中文快捷指令仍支持：
   - `发送到 分组名`

@@ -9,6 +9,7 @@ class GroupForm(StatesGroup):
 class OperatorForm(StatesGroup):
     add_operator = State()
     edit_remark = State()
+    cleanup_time = State()
 
 
 class SendForm(StatesGroup):

@@ -4,11 +4,13 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
+from aiogram.types import Message
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bot.config import Settings, ensure_sqlite_parent_dir
 from bot.models import Base
+from bot import repositories as repo
 
 
 def make_session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
@@ -53,6 +55,27 @@ async def init_db(session_factory: async_sessionmaker[AsyncSession]) -> None:
                         "ADD COLUMN receive_reply_notifications BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
+            if "private_cleanup_enabled" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN private_cleanup_enabled BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+            if "private_cleanup_time" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN private_cleanup_time VARCHAR(5)"
+                    )
+                )
+            if "private_cleanup_last_run_date" not in columns:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE operator_feature_permissions "
+                        "ADD COLUMN private_cleanup_last_run_date VARCHAR(10)"
+                    )
+                )
 
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -70,9 +93,30 @@ class DbSessionMiddleware(BaseMiddleware):
             data["session"] = session
             data["settings"] = self.settings
             try:
+                await self._record_private_incoming_message(event, session)
                 result = await handler(event, data)
                 await session.commit()
                 return result
             except Exception:
                 await session.rollback()
                 raise
+
+    async def _record_private_incoming_message(self, event: Any, session: AsyncSession) -> None:
+        if not isinstance(event, Message):
+            return
+        if event.chat.type != "private" or event.from_user is None or event.from_user.is_bot:
+            return
+
+        role = await repo.get_user_role(session, event.from_user.id, self.settings.owner_user_ids)
+        if role != "operator":
+            return
+        flags = await repo.get_operator_feature_flags(session, event.from_user.id)
+        if not flags.private_cleanup_enabled:
+            return
+        await repo.record_private_chat_message(
+            session,
+            operator_user_id=event.from_user.id,
+            chat_id=event.chat.id,
+            message_id=event.message_id,
+            direction="incoming",
+        )
